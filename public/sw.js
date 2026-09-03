@@ -121,6 +121,8 @@ self.addEventListener("message", (event) => {
         body,
         tag,
         vibrate: vibrate || [],
+        renotify: true, // without this, replacing a same-tag notification is silent —
+                         // no re-vibrate — which would defeat the whole 5s re-post loop
         requireInteraction: true, // sounds forever until silenced — not a transient cue
         actions: [{ action: "silence", title: "Silence" }],
       })
