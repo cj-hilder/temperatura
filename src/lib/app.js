@@ -10,7 +10,7 @@ import {
   advanceInBand, isMeasured, deriveProvenance,
   acquireClaimOnStart, releaseClaimOnComplete, toggleClaim as toggleClaimHolder,
 } from "./instances.js";
-import { evaluateAlarms, silenceEarliest } from "./alarms.js";
+import { evaluateAlarms, silenceEarliest, silenceById } from "./alarms.js";
 
 const CLAIM_SETTING_KEY = "claimHolderId";
 
@@ -149,9 +149,20 @@ export function createAppController(deps = {}) {
     return { instance: finalInstance, provenance, newlyFired, sounding };
   }
 
+  // Earliest-first — the thermometer button's rule, the one input with no
+  // way to target a specific alarm.
   async function silence(instanceId) {
     const instance = await store.getInstance(instanceId);
     const { alarmState, silencedId } = silenceEarliest(instance.alarmState);
+    await store.updateInstance({ ...instance, alarmState });
+    return silencedId;
+  }
+
+  // Targeted — the notification-tap and in-app per-alarm Silence routes,
+  // which are NOT earliest-first (build-plan §7 decision #2).
+  async function silenceAlarm(instanceId, alarmId) {
+    const instance = await store.getInstance(instanceId);
+    const { alarmState, silencedId } = silenceById(instance.alarmState, alarmId);
     await store.updateInstance({ ...instance, alarmState });
     return silencedId;
   }
@@ -178,6 +189,7 @@ export function createAppController(deps = {}) {
     elapsedTotalMs: (instance) => elapsedTotalMs(instance, now()),
     tick,
     silence,
+    silenceAlarm,
     connectThermometer,
     disconnectThermometer,
     getLastPacketAt,
