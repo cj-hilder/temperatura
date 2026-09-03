@@ -221,16 +221,22 @@ Restart re-arms all time alarms, including the duration-reached alarm. Temperatu
 
 On Android, `navigator.vibrate()` is ignored when the document is hidden, and an in-progress vibration is cancelled by the visibility change. Vibration while backgrounded is therefore only reachable through the `vibrate` option on a service-worker notification. See ble-hr-tool.zip (Manawa Pace) for a working example of a system vibration firing while the app is backgrounded: `triggerNotification()` in app.js routes to the service worker, and the `message` handler in sw.js calls `showNotification` with the pattern.
 
-Alert routing follows that example:
+Alert routing follows that example, and nags on the same 5-second cadence (see Notification
+lifetime, below) regardless of visibility — visible and hidden should feel the same to the
+user. Only the delivery mechanism differs, because of the platform constraint above:
 
-* **App visible:** vibrate directly with `navigator.vibrate(pattern)`. No notification is needed, because the app itself is on screen with a silence button.
-* **App hidden:** post to the service worker, which shows a notification carrying the vibration pattern. The audio plays through the keep-alive `AudioContext` either way.
+* **App visible:** every 5 seconds, vibrate directly with `navigator.vibrate(pattern)`. No
+  notification is needed, because the app itself is on screen with a silence button.
+* **App hidden:** every 5 seconds, post to the service worker, which (re-)shows a notification
+  carrying the vibration pattern — this is the only path available since `navigator.vibrate()`
+  is ignored while hidden. The audio plays through the keep-alive `AudioContext` either way,
+  continuously, regardless of visibility.
 
 The vibration pattern is fixed in code, one pattern for all alarms. The per-theme Vibrate setting only decides whether it is used.
 
 ##### Notification lifetime
 
-An unsilenced alarm sounds forever, but a notification only vibrates at the moment it is posted. So while an alarm is sounding and the app is hidden, its notification is **re-posted every 5 seconds**. Each re-post fires the vibration again, which is what makes a phone in a pocket keep nagging.
+An unsilenced alarm sounds forever, and nags every 5 seconds whether the app is visible or hidden. A notification only vibrates at the moment it is posted, so while an alarm is sounding and the app is hidden, its notification is **re-posted every 5 seconds** to carry that same cadence through — each re-post fires the vibration again, which is what makes a phone in a pocket keep nagging. While visible, the same 5-second cadence is delivered by calling `navigator.vibrate(pattern)` directly instead, since there is no notification to re-post.
 
 A notification stays up until one of:
 

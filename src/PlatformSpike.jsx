@@ -91,24 +91,29 @@ export default function PlatformSpike() {
     });
   };
 
-  const fireAlarm = () => {
-    if (soundingRef.current) return;
-    soundingRef.current = true;
-    setSounding(true);
-    startBeep();
-
+  // Same 5s nag cadence whether visible or hidden (per spec — visible and hidden
+  // should feel the same to the user). Only the delivery mechanism differs:
+  // navigator.vibrate() is ignored while the document is hidden, so that path
+  // has to go through a re-posted notification instead. Checking visibility on
+  // every tick (rather than once at fire-time) also means a visibility change
+  // mid-alarm switches mechanism on the very next tick.
+  const nag = () => {
     if (document.visibilityState === "visible") {
       if ("vibrate" in navigator) navigator.vibrate(VIBRATE_PATTERN);
     } else {
       postAlarmNotify();
     }
+  };
 
-    // Re-posts only matter while hidden (visible has the on-screen Silence
-    // button and needs no nagging notification) — this only proves anything
-    // if keep-alive is genuinely holding this timer alive in the background.
-    repostTimerRef.current = setInterval(() => {
-      if (document.visibilityState !== "visible") postAlarmNotify();
-    }, REPOST_INTERVAL_MS);
+  const fireAlarm = () => {
+    if (soundingRef.current) return;
+    soundingRef.current = true;
+    setSounding(true);
+    startBeep();
+    nag();
+    // This only proves anything if keep-alive is genuinely holding this timer
+    // alive in the background.
+    repostTimerRef.current = setInterval(nag, REPOST_INTERVAL_MS);
   };
 
   const stopSounding = () => {
