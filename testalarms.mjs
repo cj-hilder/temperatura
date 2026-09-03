@@ -3,6 +3,7 @@ import {
   reArmOnRestart,
   evaluateAlarms,
   silenceEarliest,
+  silenceById,
   DATA_LOSS_ALARM_ID,
   DATA_LOSS_TIMEOUT_MS,
 } from './src/lib/alarms.js';
@@ -229,6 +230,30 @@ console.log('\nThree simultaneous alarms are silenced earliest-first by three pr
   ok('third press silences c', silenced === 'c');
   ({ alarmState: state, silencedId: silenced } = silenceEarliest(state));
   ok('a fourth press with nothing sounding silences nothing', silenced === null);
+}
+
+console.log('\nsilenceById silences a specific alarm regardless of fire order (notification / in-app path):');
+{
+  const a = { id: 'a', kind: 'time', name: 'A', atMs: 1000, repeat: false, intervalMs: null, theme: null };
+  const b = { id: 'b', kind: 'time', name: 'B', atMs: 1000, repeat: false, intervalMs: null, theme: null };
+  let state = initAlarmState([a, b]);
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: state, elapsedRunningMs: 1000, now: 100 }));
+  state = r.alarmState;
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: state, elapsedRunningMs: 1000, now: 200 }));
+  state = r.alarmState;
+  ok('both sounding, a fired first', JSON.stringify(r.sounding) === JSON.stringify(['a', 'b']));
+
+  let silenced;
+  ({ alarmState: state, silencedId: silenced } = silenceById(state, 'b'));
+  ok('silenceById can target the later alarm directly, unlike earliest-first', silenced === 'b');
+  ok('the earlier alarm is untouched', state.a.sounding === true);
+  ok('the targeted alarm is silenced', state.b.sounding === false);
+
+  ({ alarmState: state, silencedId: silenced } = silenceById(state, 'b'));
+  ok('silencing an already-silent alarm by id is a no-op', silenced === null);
+
+  ({ alarmState: state, silencedId: silenced } = silenceById(state, 'nonexistent'));
+  ok('silencing an unknown id is a no-op, not a crash', silenced === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

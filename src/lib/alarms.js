@@ -191,3 +191,16 @@ export function silenceEarliest(alarmState) {
     silencedId: id,
   };
 }
+
+// Silences one specific alarm by id, regardless of fire order. Unlike the
+// thermometer's single physical button (which has no way to target a
+// specific alarm and so must fall back to earliest-first), both the
+// notification's Silence action and the in-app per-alarm control silence
+// exactly the alarm they belong to (build-plan §7 decision #2).
+export function silenceById(alarmState, alarmId) {
+  if (!alarmState[alarmId]?.sounding) return { alarmState, silencedId: null };
+  return {
+    alarmState: { ...alarmState, [alarmId]: { ...alarmState[alarmId], sounding: false } },
+    silencedId: alarmId,
+  };
+}
