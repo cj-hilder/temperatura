@@ -1,0 +1,22 @@
+{
+  "name": "temperatura",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "Chris Hilder",
+  "type": "module",
+  "scripts": {
+    "dev": "node generate-env.mjs dev && vite",
+    "build": "node generate-env.mjs && vite build",
+    "preview": "vite preview",
+    "test": "for f in test*.mjs; do node \"$f\" || exit 1; done"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.4.0",
+    "vite": "^6.3.0"
+  }
+}
