@@ -17,6 +17,10 @@ export default function PlatformSpike() {
     "Notification" in window ? Notification.permission : "unsupported"
   );
   const [sounding, setSounding] = useState(false);
+  // Gates "Fire fake alarm" so it can't silently no-op on a stale AudioContext —
+  // e.g. after the page auto-reloads on a service-worker update (main.jsx),
+  // which wipes keep-alive state until "Start keep-alive" is tapped again.
+  const [keepAliveStarted, setKeepAliveStarted] = useState(false);
 
   const soundingRef = useRef(false);
   const repostTimerRef = useRef(null);
@@ -52,6 +56,7 @@ export default function PlatformSpike() {
       setNotifPermission(perm);
     }
     refreshStatus();
+    setKeepAliveStarted(!!keepAlive.audioRef.current?.ctx);
   };
 
   const startBeep = () => {
@@ -139,9 +144,10 @@ export default function PlatformSpike() {
       </section>
 
       <section>
-        <button onClick={fireAlarm} disabled={sounding}>Fire fake alarm</button>{" "}
+        <button onClick={fireAlarm} disabled={sounding || !keepAliveStarted}>Fire fake alarm</button>{" "}
         <button onClick={silenceInApp} disabled={!sounding}>Silence</button>
         <p>{sounding ? "Sounding…" : "Silent"}</p>
+        {!keepAliveStarted && <p>Tap "Start keep-alive" first (a page reload, e.g. from a new deploy, resets this).</p>}
       </section>
     </div>
   );
