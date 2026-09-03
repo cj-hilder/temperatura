@@ -1,0 +1,169 @@
+// The instance state machine. Pure — no DOM, no clock read internally (every
+// timestamp comes in as a parameter), no BLE. Every quantity is derived from
+// stored epoch timestamps, never a tick counter, so recovery after the app is
+// killed is just arithmetic — see advanceInBand's comment for why that also
+// makes recovery and normal operation the same code path.
+import { initAlarmState, reArmOnRestart, DATA_LOSS_TIMEOUT_MS } from "./alarms.js";
+
+export function startInstance({ id, recipeId, stepId, stepAlarmDefs }, now) {
+  return {
+    id,
+    recipeId,
+    stepId,
+    tag: null,
+    status: "running",
+    startedAt: now,
+    pausedAt: null,
+    accumulatedPausedMs: 0,
+    accumulatedInBandMs: 0,
+    lastSampleAt: now,
+    // "assume in-band if no data available" — the starting assumption with no
+    // observations yet is exactly the no-data case.
+    lastKnownInBand: true,
+    latchedEstimate: false,
+    completedAt: null,
+    alarmState: initAlarmState(stepAlarmDefs),
+  };
+}
+
+export function pauseInstance(instance, now) {
+  if (instance.status !== "running") return instance;
+  return { ...instance, status: "paused", pausedAt: now };
+}
+
+export function resumeInstance(instance, now) {
+  if (instance.status !== "paused") return instance;
+  return {
+    ...instance,
+    status: "running",
+    pausedAt: null,
+    accumulatedPausedMs: instance.accumulatedPausedMs + (now - instance.pausedAt),
+    // Excludes the paused span from in-band accounting too, the same way
+    // accumulatedPausedMs excludes it from elapsedRunningMs — the gap is
+    // neither in-band nor out-of-band time, it simply didn't happen.
+    lastSampleAt: now,
+  };
+}
+
+export function restartInstance(instance, stepAlarmDefs, now) {
+  return {
+    ...instance,
+    status: "running",
+    startedAt: now,
+    pausedAt: null,
+    accumulatedPausedMs: 0,
+    accumulatedInBandMs: 0,
+    lastSampleAt: now,
+    lastKnownInBand: true,
+    latchedEstimate: false,
+    completedAt: null,
+    // Temperature alarms are NOT re-armed here — they re-arm by temperature,
+    // not by time, so a restart doesn't change anything about the thermometer.
+    alarmState: reArmOnRestart(instance.alarmState, stepAlarmDefs),
+  };
+}
+
+export function completeInstance(instance, now) {
+  return { ...instance, status: "completed", completedAt: now };
+}
+
+// "Duplicate: Start another instance of this step" — a fresh instance, not a
+// clone: no tag, no accumulated time, no claim (the "never auto-take the
+// claim" rule governs this exactly like any other Start).
+export function duplicateInstance(instance, newId, stepAlarmDefs, now) {
+  return startInstance({ id: newId, recipeId: instance.recipeId, stepId: instance.stepId, stepAlarmDefs }, now);
+}
+
+export function setTag(instance, tag) {
+  return { ...instance, tag };
+}
+
+// Running-only elapsed time (excludes paused spans) — what time alarms and
+// the duration-reached alarm evaluate against.
+export function elapsedRunningMs(instance, now) {
+  const openPauseMs = instance.pausedAt != null ? now - instance.pausedAt : 0;
+  return now - instance.startedAt - instance.accumulatedPausedMs - openPauseMs;
+}
+
+// Total wall-clock elapsed time since start (includes pauses) — for display.
+export function elapsedTotalMs(instance, now) {
+  return now - instance.startedAt;
+}
+
+/**
+ * Advances in-band accumulation from `instance.lastSampleAt` to `now`. Two
+ * different things carry forward differently across that elapsed span:
+ *
+ *   - in-band/out-of-band-ness carries forward from the LAST KNOWN value when
+ *     currently unmeasured (spec: "continues with the last value it had").
+ *   - measured/assumed-ness does NOT carry forward — it's read live from this
+ *     call's `measured` flag, because that flag describes "as far as we can
+ *     tell, was there data through this whole span" (evaluation happens
+ *     often — every packet, every tick — so the one case with a large gap,
+ *     an app that was killed and relaunched, is correctly "no data existed
+ *     for that entire gap", not "still measured because it was measured right
+ *     before the gap started").
+ *
+ * That second point is what makes recovery free: relaunching after a kill is
+ * just calling this exact function with a bigger gap and `measured: false`
+ * (there's no live connection yet), and the arithmetic falls out correctly —
+ * no separate recovery path needed.
+ *
+ * Frozen entirely while paused, per spec ("In-band accumulation pauses").
+ *
+ * @param {object} sample - { measured: boolean, inBand: boolean }
+ */
+export function advanceInBand(instance, { measured, inBand }, now) {
+  if (instance.status !== "running") return instance;
+
+  const elapsed = Math.max(0, now - instance.lastSampleAt);
+  const effectiveInBand = measured ? inBand : instance.lastKnownInBand;
+
+  return {
+    ...instance,
+    lastSampleAt: now,
+    lastKnownInBand: effectiveInBand,
+    accumulatedInBandMs: instance.accumulatedInBandMs + (effectiveInBand ? elapsed : 0),
+    // Latches permanently once any in-band time was accumulated while assumed
+    // — even if the instance later regains the probe.
+    latchedEstimate: instance.latchedEstimate || (effectiveInBand && !measured),
+  };
+}
+
+// Provenance's "Measured" formula (build-plan: "does this instance hold the
+// claim, how long since the last packet, is the reading valid"). Shared by
+// the progress-bar state below and by whoever assembles alarms.js's sample
+// (app.js) — one formula, not two copies that could drift apart.
+export function isMeasured({ claimed, msSinceLastPacket, readingValid }) {
+  return !!claimed && msSinceLastPacket != null && msSinceLastPacket < DATA_LOSS_TIMEOUT_MS && !!readingValid;
+}
+
+// The four progress-bar states. `inBand` is the live reading-vs-band result
+// when measured, or the carried-forward `instance.lastKnownInBand` when
+// assumed — resolving that distinction is the caller's job (see advanceInBand,
+// which needs the same two inputs to update the carried-forward state). The
+// latched "≈ estimate" marker is a separate, independently-shown flag, not one
+// of these four states.
+export function deriveProvenance({ measured, inBand }) {
+  if (measured) return inBand ? "measured-in-band" : "measured-out-of-band";
+  return inBand ? "assumed-counting" : "assumed-not-counting";
+}
+
+// Claim: a single global value (an instance id, or null), not a per-instance
+// field — "the thermometer" is one shared resource, not owned by an instance
+// record. These three transitions are the whole lifecycle from the spec.
+
+export function acquireClaimOnStart(claimHolderId, instanceId) {
+  // "A new instance never takes the claim away from a holding instance."
+  return claimHolderId == null ? instanceId : claimHolderId;
+}
+
+export function releaseClaimOnComplete(claimHolderId, completedInstanceId) {
+  return claimHolderId === completedInstanceId ? null : claimHolderId;
+}
+
+export function toggleClaim(claimHolderId, instanceId) {
+  // A deliberate tap always wins, even taking the claim from another holder —
+  // "never auto-take" governs automatic acquisition at Start only.
+  return claimHolderId === instanceId ? null : instanceId;
+}
