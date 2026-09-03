@@ -3,7 +3,12 @@
 // FakeThermometer (for tests) — mirroring storage.js's Backend split.
 //
 // Interface both share: connect(handlers) / disconnect(), where handlers is
-// { onMeasurement(sample), onDisconnect() }.
+// { onMeasurement(sample), onDisconnect() }. WebBluetoothBackend additionally
+// calls three optional handlers — onReconnecting(attempt, maxAttempts),
+// onReconnected(), onReconnectGaveUp() — surfacing the bounded retry loop so
+// a caller can show it happening rather than going silent between a drop and
+// either recovery or giving up. FakeThermometer has no reconnect logic and
+// never calls them.
 //
 // The 5-second data-loss watchdog is deliberately NOT an internal timer here.
 // A periodic tick loop already has to exist elsewhere (time alarms need
@@ -143,10 +148,12 @@ export function createWebBluetoothBackend({ bluetooth } = {}) {
   async function attemptReconnect() {
     reconnecting = true;
     for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt++) {
+      handlers?.onReconnecting?.(attempt, RECONNECT_ATTEMPTS);
       try {
         const server = await device.gatt.connect();
         await subscribe(server);
         reconnecting = false;
+        handlers?.onReconnected?.();
         return;
       } catch {
         if (attempt < RECONNECT_ATTEMPTS) await new Promise((r) => setTimeout(r, RECONNECT_INTERVAL_MS));
@@ -155,6 +162,7 @@ export function createWebBluetoothBackend({ bluetooth } = {}) {
     reconnecting = false;
     // A long press is a legitimate power-off — give up and start clean.
     device = null;
+    handlers?.onReconnectGaveUp?.();
   }
 
   async function connect(h) {
