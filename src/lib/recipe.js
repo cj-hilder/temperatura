@@ -1,0 +1,108 @@
+// Recipe and step schema, validation, and JSON import/export shaping. Pure —
+// no DOM, no clock, no BLE. Id assignment is deliberately NOT this module's
+// job — storage.js's Store already owns id generation (mirroring RTW's
+// Store.createRoute), so a blank recipe/step here just takes whatever id its
+// caller already decided on.
+
+export function createBlankRecipe(id) {
+  return {
+    id,
+    name: "",
+    description: "",
+    notes: [],
+    servings: "",
+    ingredients: [],
+    steps: [],
+  };
+}
+
+export function createBlankStep(id) {
+  return {
+    id,
+    name: "",
+    description: "",
+    duration: null, // { ms, kind: "fixed" | "inBand" }
+    timeAlarms: [], // { id, name, atMs, repeat, intervalMs, theme }
+    tempBand: null, // { lowC, highC }
+    tempAlarms: [], // { id, name, thresholdC, direction: "heating" | "cooling", theme }
+    durationReachedAlarm: null, // { enabled, theme } — only meaningful when duration is set
+  };
+}
+
+/**
+ * @returns {{valid: boolean, errors: string[]}}
+ */
+export function validateStep(step) {
+  const errors = [];
+  if (!step.name || typeof step.name !== "string") errors.push("Step name is required.");
+
+  if (step.duration) {
+    if (!["fixed", "inBand"].includes(step.duration.kind)) {
+      errors.push(`Step "${step.name}": duration kind must be "fixed" or "inBand".`);
+    }
+    // The one combination the spec calls out explicitly as invalid.
+    if (step.duration.kind === "inBand" && !step.tempBand) {
+      errors.push(`Step "${step.name}": a duration "in temperature band" needs a temperature band.`);
+    }
+    if (!(step.duration.ms > 0)) {
+      errors.push(`Step "${step.name}": duration must be a positive number of milliseconds.`);
+    }
+  }
+
+  if (step.tempBand) {
+    const { lowC, highC } = step.tempBand;
+    if (!(typeof lowC === "number" && typeof highC === "number" && lowC < highC)) {
+      errors.push(`Step "${step.name}": temperature band must have lowC < highC.`);
+    }
+  }
+
+  for (const alarm of step.timeAlarms) {
+    if (!alarm.name) errors.push(`Step "${step.name}": every time alarm needs a name.`);
+    if (!(alarm.atMs >= 0)) errors.push(`Step "${step.name}": time alarm "${alarm.name}" needs a valid time.`);
+    if (alarm.repeat && !(alarm.intervalMs > 0)) {
+      errors.push(`Step "${step.name}": repeating time alarm "${alarm.name}" needs a positive repeat interval.`);
+    }
+  }
+
+  for (const alarm of step.tempAlarms) {
+    if (!alarm.name) errors.push(`Step "${step.name}": every temperature alarm needs a name.`);
+    if (!["heating", "cooling"].includes(alarm.direction)) {
+      errors.push(`Step "${step.name}": temperature alarm "${alarm.name}" needs a heating/cooling direction.`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * @returns {{valid: boolean, errors: string[]}}
+ */
+export function validateRecipe(recipe) {
+  const errors = [];
+  if (!recipe.name || typeof recipe.name !== "string") errors.push("Recipe name is required.");
+  for (const step of recipe.steps) {
+    const stepResult = validateStep(step);
+    errors.push(...stepResult.errors);
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+const EXPORT_FORMAT = "temperatura/recipe";
+const EXPORT_VERSION = 1;
+
+export function recipeToExportJSON(recipe) {
+  return { format: EXPORT_FORMAT, version: EXPORT_VERSION, exportedAt: Date.now(), recipe };
+}
+
+/**
+ * Validates and unwraps a single-recipe export bundle. Does not assign an id —
+ * the caller decides whether to reuse the bundled id or generate a fresh one.
+ * @returns {{valid: boolean, errors: string[], recipe: object|null}}
+ */
+export function recipeFromImportJSON(bundle) {
+  if (!bundle || bundle.format !== EXPORT_FORMAT) {
+    return { valid: false, errors: ["Not a Temperatura recipe export file."], recipe: null };
+  }
+  const { valid, errors } = validateRecipe(bundle.recipe || {});
+  return { valid, errors, recipe: valid ? bundle.recipe : null };
+}
