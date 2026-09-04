@@ -100,6 +100,12 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
             <span>°C</span>
           </div>
         )}
+        {tempBandOn && (
+          <p style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
+            A band always carries two automatic alarms — cooling below {lowC}°C, heating above {highC}°C.
+            Alarm theme picker is coming with Settings.
+          </p>
+        )}
         {durationKind === "inBand" && !tempBandOn && (
           <p style={t.errorText}>An "in temperature band" duration needs a temperature band.</p>
         )}

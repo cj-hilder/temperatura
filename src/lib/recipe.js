@@ -26,6 +26,12 @@ export function createBlankStep(id) {
     tempBand: null, // { lowC, highC }
     tempAlarms: [], // { id, name, thresholdC, direction: "heating" | "cooling", theme }
     durationReachedAlarm: null, // { enabled, theme } — only meaningful when duration is set
+    // Implicit band-boundary alarms — always present whenever tempBand is
+    // set, never individually disabled, only themeable. See
+    // buildStepAlarmDefs. { theme } only, unlike durationReachedAlarm — spec
+    // gives these no enabled/disabled toggle.
+    bandMinAlarm: { theme: null },
+    bandMaxAlarm: { theme: null },
   };
 }
 
@@ -108,6 +114,29 @@ export function buildStepAlarmDefs(step) {
       repeat: false,
       intervalMs: null,
       theme: step.durationReachedAlarm.theme,
+    });
+  }
+  // A temperature band always carries two implicit alarms — a cooling alarm
+  // at the band's low edge and a heating alarm at its high edge — alerting
+  // whenever the reading actually leaves the band, not just failing to
+  // accumulate in-band time silently. Unlike durationReachedAlarm these have
+  // no enabled/disabled toggle: they exist whenever the band does.
+  if (step.tempBand) {
+    defs.push({
+      id: `${step.id}-band-min`,
+      kind: "temperature",
+      name: "Below band",
+      thresholdC: step.tempBand.lowC,
+      direction: "cooling",
+      theme: step.bandMinAlarm?.theme ?? null,
+    });
+    defs.push({
+      id: `${step.id}-band-max`,
+      kind: "temperature",
+      name: "Above band",
+      thresholdC: step.tempBand.highC,
+      direction: "heating",
+      theme: step.bandMaxAlarm?.theme ?? null,
     });
   }
   return defs;

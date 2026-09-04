@@ -178,6 +178,23 @@ console.log('\nbuildStepAlarmDefs — bridges recipe.js\'s storage shape to alar
   step = { ...step, durationReachedAlarm: { enabled: false, theme: null } };
   defs = buildStepAlarmDefs(step);
   ok('no duration-reached entry when disabled', !defs.some((d) => d.kind === 'duration'));
+
+  step = { ...createBlankStep('s2'), tempBand: { lowC: 20, highC: 30 } };
+  defs = buildStepAlarmDefs(step);
+  ok('a band synthesizes exactly two extra alarms', defs.length === 2);
+  const bandMin = defs.find((d) => d.id === 's2-band-min');
+  const bandMax = defs.find((d) => d.id === 's2-band-max');
+  ok('band-min is a cooling temperature alarm at the low edge', bandMin.kind === 'temperature' && bandMin.direction === 'cooling' && bandMin.thresholdC === 20);
+  ok('band-max is a heating temperature alarm at the high edge', bandMax.kind === 'temperature' && bandMax.direction === 'heating' && bandMax.thresholdC === 30);
+
+  step = { ...step, bandMinAlarm: { theme: 'bell' }, bandMaxAlarm: { theme: 'siren' } };
+  defs = buildStepAlarmDefs(step);
+  ok('band-min carries its own theme', defs.find((d) => d.id === 's2-band-min').theme === 'bell');
+  ok('band-max carries its own theme', defs.find((d) => d.id === 's2-band-max').theme === 'siren');
+
+  step = { ...createBlankStep('s3'), tempBand: null };
+  defs = buildStepAlarmDefs(step);
+  ok('no band alarms when there is no band', defs.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

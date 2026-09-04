@@ -8,6 +8,8 @@ import { formatDuration, formatRemaining } from "./lib/format.js";
 export function alarmName(step, alarmId) {
   if (alarmId === "__dataLoss") return "Data loss";
   if (alarmId === `${step.id}-duration-reached`) return "Duration reached";
+  if (alarmId === `${step.id}-band-min`) return "Below band";
+  if (alarmId === `${step.id}-band-max`) return "Above band";
   return (
     step.timeAlarms.find((a) => a.id === alarmId)?.name ??
     step.tempAlarms.find((a) => a.id === alarmId)?.name ??
@@ -37,6 +39,10 @@ export function describeStepAlarms(step) {
       id: `${step.id}-duration-reached`,
       text: `Duration reached — at ${formatDuration(step.duration.ms)}`,
     });
+  }
+  if (step.tempBand) {
+    lines.push({ id: `${step.id}-band-min`, text: `Below band — ${step.tempBand.lowC}°C, cooling` });
+    lines.push({ id: `${step.id}-band-max`, text: `Above band — ${step.tempBand.highC}°C, heating` });
   }
   return lines;
 }

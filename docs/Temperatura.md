@@ -142,6 +142,10 @@ Start, Pause/resume, Restart, Complete, Duplicate
     * Repeat interval  
   * Alarm theme  
 * Temperature band (min and max)  
+  * Whenever a temperature band is set, two implicit alarms always exist: a cooling alarm at
+    the band's low temperature and a heating alarm at its high temperature. These cannot be
+    disabled, only individually themed (per-band-edge alarm theme) — they exist for as long as
+    the band does.
 * Temperature alarms  
   * Name  
   * Temperature  
