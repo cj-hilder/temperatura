@@ -4,6 +4,7 @@ import {
   evaluateAlarms,
   silenceEarliest,
   silenceById,
+  earliestSoundingAcrossInstances,
   DATA_LOSS_ALARM_ID,
   DATA_LOSS_TIMEOUT_MS,
 } from './src/lib/alarms.js';
@@ -254,6 +255,33 @@ console.log('\nsilenceById silences a specific alarm regardless of fire order (n
 
   ({ alarmState: state, silencedId: silenced } = silenceById(state, 'nonexistent'));
   ok('silencing an unknown id is a no-op, not a crash', silenced === null);
+}
+
+console.log('\nearliestSoundingAcrossInstances — the thermometer button is shared across every running instance:');
+{
+  const a = { id: 'a', kind: 'time', name: 'A', atMs: 1000, repeat: false, intervalMs: null, theme: null };
+  const b = { id: 'b', kind: 'time', name: 'B', atMs: 1000, repeat: false, intervalMs: null, theme: null };
+
+  // Instance "loaf1" fires 'a' at now=200; instance "loaf2" fires 'b' at now=100 (earlier).
+  let stateLoaf1 = initAlarmState([a]);
+  stateLoaf1 = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: stateLoaf1, elapsedRunningMs: 1000, now: 200 })).alarmState;
+  let stateLoaf2 = initAlarmState([b]);
+  stateLoaf2 = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: stateLoaf2, elapsedRunningMs: 1000, now: 100 })).alarmState;
+
+  const result = earliestSoundingAcrossInstances([
+    { instanceId: 'loaf1', alarmState: stateLoaf1 },
+    { instanceId: 'loaf2', alarmState: stateLoaf2 },
+  ]);
+  ok('finds the globally earliest alarm across different instances', result.instanceId === 'loaf2' && result.alarmId === 'b', JSON.stringify(result));
+
+  const noneSounding = earliestSoundingAcrossInstances([
+    { instanceId: 'x', alarmState: initAlarmState([]) },
+    { instanceId: 'y', alarmState: initAlarmState([]) },
+  ]);
+  ok('null when nothing is sounding anywhere', noneSounding === null);
+
+  const empty = earliestSoundingAcrossInstances([]);
+  ok('null with no instances at all', empty === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

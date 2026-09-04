@@ -87,6 +87,32 @@ export function validateRecipe(recipe) {
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Bridges this module's storage shape to alarms.js's evaluation shape.
+ * timeAlarms/tempAlarms are stored as separate untagged arrays, and the
+ * duration-reached alarm lives in its own field, separate from user-created
+ * time alarms — evaluateAlarms() wants one flat, kind-tagged array.
+ * @returns {Array} stepAlarmDefs, ready for alarms.js
+ */
+export function buildStepAlarmDefs(step) {
+  const defs = [
+    ...step.timeAlarms.map((a) => ({ ...a, kind: "time" })),
+    ...step.tempAlarms.map((a) => ({ ...a, kind: "temperature" })),
+  ];
+  if (step.duration && step.durationReachedAlarm?.enabled) {
+    defs.push({
+      id: `${step.id}-duration-reached`,
+      kind: "duration",
+      name: "Duration reached",
+      atMs: step.duration.ms,
+      repeat: false,
+      intervalMs: null,
+      theme: step.durationReachedAlarm.theme,
+    });
+  }
+  return defs;
+}
+
 const EXPORT_FORMAT = "temperatura/recipe";
 const EXPORT_VERSION = 1;
 

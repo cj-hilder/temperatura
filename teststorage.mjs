@@ -1,5 +1,5 @@
 import { Store, MemoryBackend, STORES } from './src/lib/storage.js';
-import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON } from './src/lib/recipe.js';
+import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -156,6 +156,28 @@ console.log('\nBackup / restore (all data), including the sounds ArrayBuffer<->b
   let threw = false;
   try { await fresh.importAll({ format: 'not-a-backup' }); } catch { threw = true; }
   ok('importAll rejects a file with the wrong format tag', threw);
+}
+
+console.log('\nbuildStepAlarmDefs — bridges recipe.js\'s storage shape to alarms.js\'s evaluation shape:');
+{
+  const timeAlarm = { id: 't1', name: 'Stir', atMs: 60000, repeat: false, intervalMs: null, theme: null };
+  const tempAlarm = { id: 'h1', name: 'Too hot', thresholdC: 80, direction: 'heating', theme: null };
+  let step = { ...createBlankStep('s1'), timeAlarms: [timeAlarm], tempAlarms: [tempAlarm], duration: null, durationReachedAlarm: null };
+  let defs = buildStepAlarmDefs(step);
+  ok('time alarms are tagged kind: time', defs.find((d) => d.id === 't1').kind === 'time');
+  ok('temp alarms are tagged kind: temperature', defs.find((d) => d.id === 'h1').kind === 'temperature');
+  ok('no duration-reached entry when there is no duration', defs.length === 2);
+
+  step = { ...step, duration: { ms: 1_800_000, kind: 'fixed' }, durationReachedAlarm: { enabled: true, theme: null } };
+  defs = buildStepAlarmDefs(step);
+  const durationDef = defs.find((d) => d.kind === 'duration');
+  ok('a duration-reached entry is synthesized when enabled', !!durationDef);
+  ok('it fires at the duration', durationDef.atMs === 1_800_000);
+  ok('it is one-shot', durationDef.repeat === false);
+
+  step = { ...step, durationReachedAlarm: { enabled: false, theme: null } };
+  defs = buildStepAlarmDefs(step);
+  ok('no duration-reached entry when disabled', !defs.some((d) => d.kind === 'duration'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

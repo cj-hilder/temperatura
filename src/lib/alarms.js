@@ -204,3 +204,25 @@ export function silenceById(alarmState, alarmId) {
     silencedId: alarmId,
   };
 }
+
+// The thermometer button is a single shared physical input across every
+// running instance, not scoped to one step — spec: "if multiple alarms are
+// firing the button press silences the earliest one to fire," with no
+// mention of restricting that to one step. This compares fire order across
+// every instance's alarm state at once, unlike silenceEarliest which only
+// looks within one.
+// @param {Array<{instanceId: string, alarmState: object}>} instances
+// @returns {{instanceId: string, alarmId: string} | null}
+export function earliestSoundingAcrossInstances(instances) {
+  let best = null;
+  for (const { instanceId, alarmState } of instances) {
+    for (const [alarmId, state] of Object.entries(alarmState)) {
+      if (!state.sounding) continue;
+      const firedAt = state.firedAt ?? 0;
+      if (best === null || firedAt < best.firedAt) {
+        best = { instanceId, alarmId, firedAt };
+      }
+    }
+  }
+  return best ? { instanceId: best.instanceId, alarmId: best.alarmId } : null;
+}
