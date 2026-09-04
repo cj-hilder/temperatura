@@ -128,7 +128,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
             <div style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
               {step.duration
                 ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
-                : "No duration"}
+                : "No set duration"}
               {step.tempBand ? ` · ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
               {running.length > 0 ? ` · ${running.length} in progress` : ""}
             </div>

@@ -90,11 +90,11 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
   };
 
   const ROWS = [
+    { label: "Settings", onClick: onOpenSettings },
     { label: "Import", onClick: () => { setMessage(null); importRef.current.click(); } },
     { label: "Export", onClick: handleExportClick },
     { label: "Backup", onClick: backup },
     { label: "Restore", onClick: () => { setMessage(null); setExpanded(expanded === "restore" ? null : "restore"); } },
-    { label: "Settings", onClick: onOpenSettings },
     { label: "Help", onClick: onOpenHelp },
     { label: "About", onClick: onOpenAbout },
   ];

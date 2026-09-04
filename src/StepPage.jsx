@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import StepEditor from "./StepEditor.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName, describeStepAlarms } from "./stepDisplay.js";
+import { elapsedRunningMs } from "./lib/instances.js";
 import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -109,6 +110,11 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
 
   const claimed = !!instance && instance.id === claimHolderId;
   const progress = instance ? computeStepProgress(instance, step, engine, Date.now()) : null;
+  // computeStepProgress only returns a figure when the step has a set
+  // duration — spec: no progress bar at all without one. A running instance
+  // still has a real elapsed time even so; show that on its own, with no
+  // bar and no remaining/provenance since there's no duration to base them on.
+  const elapsedOnlyMs = !progress && instance ? elapsedRunningMs(instance, Date.now()) : null;
   const soundingAlarms = instance
     ? Object.entries(instance.alarmState)
         .filter(([, s]) => s.sounding)
@@ -156,7 +162,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         <p style={{ fontSize: 12, color: t.colors.textMuted }}>
           {step.duration
             ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
-            : "No duration"}
+            : "No set duration"}
           {step.tempBand ? ` · Band ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
         </p>
 
@@ -182,6 +188,10 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
               {provenanceLabel(progress.provenance) ? ` — ${provenanceLabel(progress.provenance)}` : ""}
             </div>
           </div>
+        )}
+
+        {elapsedOnlyMs != null && (
+          <p style={{ fontSize: 13, color: t.colors.textMuted, margin: "12px 0" }}>{formatDuration(elapsedOnlyMs)} elapsed</p>
         )}
 
         {soundingAlarms.length > 0 && (

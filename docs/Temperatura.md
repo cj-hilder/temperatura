@@ -46,7 +46,7 @@ A recipe with one or more running instances is force-open. Its close button stil
 
 Icon row at the top: hamburger, open, new, search, connect
 
-* Hamburger: import, export, backup, restore, settings, help, about  
+* Hamburger: settings, import, export, backup, restore, help, about  
 * Open: open a recipe from app local storage  
 * New: create a new (blank) recipe  
 * Search: free text search through all names and description of all recipes in storage  

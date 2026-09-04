@@ -132,6 +132,14 @@ export const overlayCard = {
   background: colors.cardBg,
   borderRadius: 16,
   padding: 20,
+  // Same bug fullScreenOverlay had below: HomePage's own picker overlay is a
+  // DOM descendant of its page's `page`-styled div, so it inherits the right
+  // family and never showed it — but App.jsx renders HamburgerMenu and the
+  // quit prompt as siblings of the active screen, with no `page`-styled
+  // ancestor to inherit from, so headings fell back to the browser default
+  // serif font without setting it here explicitly.
+  color: colors.text,
+  fontFamily: "system-ui, -apple-system, sans-serif",
 };
 
 export const fullScreenOverlay = {
