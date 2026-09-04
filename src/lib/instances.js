@@ -22,6 +22,10 @@ export function startInstance({ id, recipeId, stepId, stepAlarmDefs }, now) {
     lastKnownInBand: true,
     latchedEstimate: false,
     completedAt: null,
+    // A temporary, per-instance addition to the step's own duration — see
+    // extendDuration below. Zeroed on every fresh run (Start/Restart/
+    // Duplicate), never carried from a previous run of the same step.
+    durationExtensionMs: 0,
     alarmState: initAlarmState(stepAlarmDefs),
   };
 }
@@ -57,6 +61,9 @@ export function restartInstance(instance, stepAlarmDefs, now) {
     lastKnownInBand: true,
     latchedEstimate: false,
     completedAt: null,
+    // A restart is a fresh run of the step — any temporary extension from a
+    // previous run doesn't carry forward, same as accumulated time doesn't.
+    durationExtensionMs: 0,
     // Temperature alarms are NOT re-armed here — they re-arm by temperature,
     // not by time, so a restart doesn't change anything about the thermometer.
     alarmState: reArmOnRestart(instance.alarmState, stepAlarmDefs),
@@ -76,6 +83,37 @@ export function duplicateInstance(instance, newId, stepAlarmDefs, now) {
 
 export function setTag(instance, tag) {
   return { ...instance, tag };
+}
+
+/**
+ * A temporary addition to this ONE instance's duration — the step
+ * definition (and every other instance of it) is untouched, per spec: this
+ * is temporary, and a permanent change means editing the recipe step.
+ * Cumulative: extending twice adds twice.
+ *
+ * The duration-reached alarm, if it already fired for the un-extended
+ * duration, must be able to fire again once the new, later threshold is
+ * reached. A plain restart-shaped re-arm won't do — that also zeroes the
+ * elapsed clock, which extending must NOT do. So only that one alarm's
+ * fired state resets here (mirroring reArmOnRestart's shape for a single
+ * id), leaving elapsed time and every other alarm's state untouched.
+ *
+ * @param {string} [durationAlarmIdToRearm] - the id to re-arm, e.g. from
+ *   recipe.js's durationAlarmId(instance.stepId). Omit only if there's
+ *   nothing to re-arm (defensive — the caller always has this in practice).
+ */
+export function extendDuration(instance, extraMs, durationAlarmIdToRearm) {
+  const next = {
+    ...instance,
+    durationExtensionMs: (instance.durationExtensionMs || 0) + extraMs,
+  };
+  if (durationAlarmIdToRearm && next.alarmState[durationAlarmIdToRearm]) {
+    next.alarmState = {
+      ...next.alarmState,
+      [durationAlarmIdToRearm]: { firedCount: 0, sounding: false, firedAt: null },
+    };
+  }
+  return next;
 }
 
 // Running-only elapsed time (excludes paused spans) — what time alarms and

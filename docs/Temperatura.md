@@ -114,13 +114,26 @@ Current temperature (if connected and the thermometer is claimed by this instanc
 
 #### Step controls
 
-Start, Pause/resume, Restart, Complete, Duplicate
+Start, Pause/resume, Restart, Complete, Duplicate, Extend
 
 * Start: set the step to ‘in progress’ and allow the step’s alarms to trigger. If the duration is ‘fixed length’ start the timer running, if the duration is ‘in temperature band’ start counting time in temperature, if outside the temperature band show a ‘waiting for temperature’ indicator. Whether the instance is counting on live data or on assumption is shown throughout - see In-band accumulation. Once the step is started a tag name can be entered.  
 * Pause/resume: pause, then resume the timer. The step remains in progress while paused. Time alarms cannot trigger because the timer is not running, but temperature alarms can trigger because the step is in progress.  
 * Restart: reset the timer to zero and start it running again. The step remains in progress. Any time alarms that have already triggered can now trigger again.  
 * Complete:  set the step to ‘not in progress’, no more of the step’s alarms will trigger.  
-* Duplicate: Start another instance of this step
+* Duplicate: Start another instance of this step  
+* Extend: add time to this instance’s duration without editing the recipe — see Extending a duration.
+
+#### Extending a duration
+
+Available on the step page next to the duration, whenever the step has a duration and an instance is in progress (running or paused). Also offered as an action on a duration-reached alarm’s notification, alongside Silence.
+
+Tapping Extend: silences the duration-reached alarm if it is currently sounding, then opens a dialog asking how many minutes to add. The dialog explains: “This is a temporary extension — if you want to extend the duration permanently you need to edit the recipe step.”
+
+* The extension applies to this one instance only. The recipe step’s own duration is never changed, and no other instance of the same step is affected.  
+* Extending is cumulative — extending twice adds both amounts together.  
+* If the duration-reached alarm already fired, extending re-arms it so it can fire again once the new, later duration is reached. Elapsed time itself is untouched — extending only moves the target further away, the same way it never resets when paused and resumed.  
+* Restarting the instance clears any extension, the same way it clears everything else about the previous run.  
+* From the notification: tapping Extend brings the app to the foreground so the dialog can actually be answered, unlike Silence which needs no app window at all.
 
 #### Step components
 

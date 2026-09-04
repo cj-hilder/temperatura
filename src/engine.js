@@ -5,7 +5,7 @@ import { useKeepAlive } from "./lib/useKeepAlive.js";
 import { createWebBluetoothBackend, resetPressBaseline, applyPressBaseline } from "./lib/thermometer.js";
 import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
-import { buildStepAlarmDefs } from "./lib/recipe.js";
+import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
 import { earliestSoundingAcrossInstances, themeIdForFiredAlarm, themeIdForAlarmId } from "./lib/alarms.js";
 import { alarmName } from "./stepDisplay.js";
 
@@ -67,6 +67,12 @@ export function useAppEngine() {
   const [lastPacketAt, setLastPacketAt] = useState(null);
   const [claimHolderId, setClaimHolderId] = useState(null);
   const [openRecipes, setOpenRecipes] = useState([]); // [{recipe, instances: [instance, ...]}]
+  // Which instance's "Extend duration" dialog is open, if any — driven from
+  // two places (the step page's own Extend button, and a notification's
+  // Extend action arriving via the SW message listener below), so it lives
+  // here rather than as local state on any one page, and App.jsx renders the
+  // dialog as a top-level overlay regardless of which screen is showing.
+  const [pendingExtend, setPendingExtend] = useState(null); // { instanceId } | null
 
   const refresh = useCallback(async () => {
     const openIds = await app.listOpenRecipeIds();
@@ -116,6 +122,7 @@ export function useAppEngine() {
           title: alarm.title,
           body: alarm.body,
           vibrate: alarm.vibrate,
+          canExtend: alarm.canExtend,
         });
       },
     });
@@ -160,6 +167,35 @@ export function useAppEngine() {
     },
     [app, refresh]
   );
+
+  // "Extend" (step page button or a notification's Extend action): silence
+  // the duration-reached alarm if it's sounding, then open the dialog.
+  // Nothing about the duration itself changes yet — that's confirmExtend's
+  // job, so a cancelled dialog leaves the instance untouched.
+  const requestExtend = useCallback(
+    async (instanceId) => {
+      const instance = await app.store.getInstance(instanceId);
+      if (!instance) return;
+      const alarmId = durationAlarmId(instance.stepId);
+      await app.silenceAlarm(instanceId, alarmId);
+      stopAndForget(instanceId, alarmId);
+      await refresh();
+      setPendingExtend({ instanceId });
+    },
+    [app, refresh]
+  );
+
+  const confirmExtend = useCallback(
+    async (extraMinutes) => {
+      if (!pendingExtend) return;
+      await app.extendDuration(pendingExtend.instanceId, extraMinutes * 60_000);
+      setPendingExtend(null);
+      await refresh();
+    },
+    [app, refresh, pendingExtend]
+  );
+
+  const cancelExtend = useCallback(() => setPendingExtend(null), []);
 
   const completeInstance = useCallback(
     async (instanceId) => {
@@ -235,18 +271,25 @@ export function useAppEngine() {
     setConnectionState("disconnected");
   }, []);
 
-  // ---- SW ALARM_SILENCED (notification tap) ----
+  // ---- SW ALARM_SILENCED / ALARM_EXTEND_REQUESTED (notification tap) ----
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (event) => {
-      if (event.data?.type !== "ALARM_SILENCED") return;
-      const sep = event.data.tag.indexOf(":");
+      const sep = event.data?.tag?.indexOf(":") ?? -1;
       if (sep < 0) return;
-      silenceAlarm(event.data.tag.slice(0, sep), event.data.tag.slice(sep + 1));
+      const instanceId = event.data.tag.slice(0, sep);
+      if (event.data.type === "ALARM_SILENCED") {
+        silenceAlarm(instanceId, event.data.tag.slice(sep + 1));
+      } else if (event.data.type === "ALARM_EXTEND_REQUESTED") {
+        // The tag's alarm half is always the duration alarm here — the SW
+        // only ever offers "extend" on a duration-reached notification (see
+        // canExtend below) — so requestExtend only needs the instance id.
+        requestExtend(instanceId);
+      }
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [silenceAlarm]);
+  }, [silenceAlarm, requestExtend]);
 
   // ---- the shared 1-second tick loop, over every running/paused instance ----
   useEffect(() => {
@@ -290,7 +333,7 @@ export function useAppEngine() {
             const step = recipe?.steps.find((s) => s.id === instance.stepId);
             if (!recipe || !step) continue;
 
-            const stepAlarmDefs = buildStepAlarmDefs(step);
+            const stepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: instance.durationExtensionMs || 0 });
             const hasTempInterest = !!(step.tempBand || step.tempAlarms.length > 0);
             const result = await app.tick(instance.id, {
               stepAlarmDefs,
@@ -333,6 +376,9 @@ export function useAppEngine() {
                 title: recipe.name,
                 body: alarmName(step, alarmId),
                 vibrate: vibrate ? VIBRATE_PATTERN : [],
+                // Only a duration-reached notification offers Extend — the
+                // one alarm kind "add more time" is actually meaningful for.
+                canExtend: alarmId === durationAlarmId(step.id),
               });
             }
           } catch (err) {
@@ -367,6 +413,10 @@ export function useAppEngine() {
     silenceEarliestGlobal,
     completeInstance,
     closeRecipe,
+    pendingExtend,
+    requestExtend,
+    confirmExtend,
+    cancelExtend,
     // For SettingsPage's pick-time decode/duration check — must reuse this
     // exact context, not a fresh one, per useKeepAlive.js's own rationale.
     getAudioContext: () => keepAliveRef.current.audioRef.current?.ctx,

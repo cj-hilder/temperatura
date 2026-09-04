@@ -114,7 +114,11 @@ self.addEventListener("message", (event) => {
     return;
   }
   if (msg.type === "ALARM_NOTIFY") {
-    const { tag, title, body, vibrate } = msg;
+    const { tag, title, body, vibrate, canExtend } = msg;
+    const actions = [{ action: "silence", title: "Silence" }];
+    // Only a duration-reached alarm offers Extend — engine.js only ever sets
+    // canExtend true for that one alarm kind.
+    if (canExtend) actions.push({ action: "extend", title: "Extend" });
     event.waitUntil(
       self.registration.showNotification(title, {
         body,
@@ -123,7 +127,7 @@ self.addEventListener("message", (event) => {
         renotify: true, // without this, replacing a same-tag notification is silent —
                          // no re-vibrate — which would defeat the whole 5s re-post loop
         requireInteraction: true, // sounds forever until silenced — not a transient cue
-        actions: [{ action: "silence", title: "Silence" }],
+        actions,
       })
     );
     return;
@@ -139,16 +143,27 @@ self.addEventListener("message", (event) => {
   }
 });
 
-/* ---- notification interaction: any interaction silences the alarm ----
- * Per spec, tapping the Silence action or the notification body both count —
- * there's no "just dismiss without silencing" path, matching the thermometer
- * button and in-app Silence button, which are equally unconditional. */
+/* ---- notification interaction ----
+ * Per spec, tapping the Silence action or the notification body both count
+ * as silencing — there's no "just dismiss without silencing" path, matching
+ * the thermometer button and in-app Silence button, which are equally
+ * unconditional. The Extend action (only ever present on a duration-reached
+ * alarm's notification) is the one exception: it silences via the client's
+ * own requestExtend flow instead, and additionally needs a client window
+ * brought forward, since the whole point is for the user to see and answer
+ * the "how many minutes" dialog it opens. */
 self.addEventListener("notificationclick", (event) => {
   const tag = event.notification.tag;
+  const wantsExtend = event.action === "extend";
   event.notification.close();
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      clients.forEach((client) => client.postMessage({ type: "ALARM_SILENCED", tag }));
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      const messageType = wantsExtend ? "ALARM_EXTEND_REQUESTED" : "ALARM_SILENCED";
+      clientList.forEach((client) => client.postMessage({ type: messageType, tag }));
+      if (wantsExtend) {
+        if (clientList.length > 0) clientList[0].focus();
+        else if (self.clients.openWindow) self.clients.openWindow(BASE);
+      }
     })
   );
 });

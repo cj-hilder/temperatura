@@ -1,5 +1,6 @@
 import { createAppController } from './src/lib/app.js';
 import { MemoryBackend } from './src/lib/storage.js';
+import { createBlankStep, buildStepAlarmDefs, durationAlarmId } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -168,6 +169,48 @@ console.log('\nDuration-reached alarm basis matches the progress bar\'s own metr
   });
   ok('fires once accumulated in-band time (not running time) reaches the threshold',
     result.newlyFired.some((f) => f.id === 'd2'));
+}
+
+console.log('\nExtend: temporary per-instance duration extension, end to end through app.js:');
+{
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Bread', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const step = { ...createBlankStep('step-1'), duration: { ms: 5000, kind: 'fixed' }, durationReachedAlarm: { enabled: true, theme: null } };
+  const alarmId = durationAlarmId(step.id);
+
+  await app.startInstance({ id: 'inst-extend', recipeId: recipe.id, stepId: step.id, stepAlarmDefs: buildStepAlarmDefs(step) });
+
+  clock = 5000;
+  let stepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: (await app.store.getInstance('inst-extend')).durationExtensionMs });
+  let result = await app.tick('inst-extend', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration: step.duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  ok('fires at the original duration', result.newlyFired.some((f) => f.id === alarmId));
+  ok('sounding after firing', result.sounding.includes(alarmId));
+
+  const silenced = await app.silenceDurationAlarm('inst-extend');
+  ok('silenceDurationAlarm silences it without needing to know the alarm id', silenced === alarmId);
+
+  const extended = await app.extendDuration('inst-extend', 3000);
+  ok('extendDuration records the extra ms on the instance', extended.durationExtensionMs === 3000);
+  ok('extendDuration re-arms the duration alarm', extended.alarmState[alarmId].firedCount === 0);
+
+  // Still short of the new, extended threshold (5000 + 3000 = 8000).
+  clock = 6000;
+  stepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: extended.durationExtensionMs });
+  result = await app.tick('inst-extend', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration: step.duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  ok('does not fire again before the extended threshold', result.newlyFired.length === 0);
+
+  // Past the extended threshold.
+  clock = 8000;
+  result = await app.tick('inst-extend', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration: step.duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  ok('fires again once the extended threshold is reached', result.newlyFired.some((f) => f.id === alarmId));
+
+  // Extending again is cumulative, not a replacement.
+  await app.extendDuration('inst-extend', 1000);
+  const twiceExtended = await app.store.getInstance('inst-extend');
+  ok('a second extension adds on top of the first', twiceExtended.durationExtensionMs === 4000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

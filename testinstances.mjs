@@ -1,7 +1,7 @@
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag, elapsedRunningMs, elapsedTotalMs, advanceInBand,
-  isMeasured, deriveProvenance,
+  isMeasured, deriveProvenance, extendDuration,
 } from './src/lib/instances.js';
 
 let pass = 0, fail = 0;
@@ -167,6 +167,37 @@ console.log('\nisMeasured / deriveProvenance:');
   ok('measured+outOfBand -> measured-out-of-band', deriveProvenance({ measured: true, inBand: false }) === 'measured-out-of-band');
   ok('assumed+counting -> assumed-counting', deriveProvenance({ measured: false, inBand: true }) === 'assumed-counting');
   ok('assumed+notCounting -> assumed-not-counting', deriveProvenance({ measured: false, inBand: false }) === 'assumed-not-counting');
+}
+
+console.log('\nextendDuration — a temporary, per-instance addition to the step\'s own duration:');
+{
+  let i = startInstance({ id: 'i9', recipeId: 'r1', stepId: 's1', stepAlarmDefs: [
+    { id: 's1-duration-reached', kind: 'duration', name: 'Duration reached', atMs: 60000, repeat: false, intervalMs: null, theme: null },
+    { id: 'temp1', kind: 'temperature', name: 'Hot', thresholdC: 50, direction: 'heating', theme: null },
+  ] }, 0);
+  ok('starts with no extension', i.durationExtensionMs === 0);
+
+  i = extendDuration(i, 5 * 60000, 's1-duration-reached');
+  ok('adds the extra ms', i.durationExtensionMs === 5 * 60000);
+
+  i = extendDuration(i, 2 * 60000, 's1-duration-reached');
+  ok('a second extension is cumulative', i.durationExtensionMs === 7 * 60000);
+
+  // Simulate the alarm having already fired for the un-extended duration.
+  i.alarmState['s1-duration-reached'] = { firedCount: 1, sounding: true, firedAt: 12345 };
+  i = extendDuration(i, 60000, 's1-duration-reached');
+  ok('re-arms the named alarm so it can fire again at the new threshold',
+    i.alarmState['s1-duration-reached'].firedCount === 0 &&
+    i.alarmState['s1-duration-reached'].sounding === false &&
+    i.alarmState['s1-duration-reached'].firedAt === null);
+  ok('does not touch an unrelated alarm\'s state', i.alarmState.temp1 !== undefined);
+
+  const before = JSON.stringify(i.alarmState.temp1);
+  i = extendDuration(i, 60000, 'unknown-id-not-in-alarm-state');
+  ok('re-arming an id with no matching entry is a harmless no-op', JSON.stringify(i.alarmState.temp1) === before);
+
+  const withoutId = extendDuration(i, 60000);
+  ok('extendDuration works with no id to re-arm at all', withoutId.durationExtensionMs === i.durationExtensionMs + 60000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

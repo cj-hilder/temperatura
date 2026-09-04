@@ -10,6 +10,7 @@ import HamburgerMenu from "./HamburgerMenu.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import HelpPage from "./HelpPage.jsx";
 import AboutPage from "./AboutPage.jsx";
+import ExtendDialog from "./ExtendDialog.jsx";
 import * as t from "./theme.js";
 
 export default function App() {
@@ -70,6 +71,11 @@ export default function App() {
   useBackDismiss(settingsOpen, () => { setSettingsOpen(false); setMenuOpen(true); });
   useBackDismiss(helpOpen, () => { setHelpOpen(false); setMenuOpen(true); });
   useBackDismiss(aboutOpen, () => { setAboutOpen(false); setMenuOpen(true); });
+  // Driven by engine state, not local state — it can open from a step page's
+  // button or from a notification's Extend action, neither of which has a
+  // natural "App-local" origin. Back just cancels; nothing about the
+  // instance changes unless the dialog's own Extend button is pressed.
+  useBackDismiss(!!engine.pendingExtend, engine.cancelExtend);
 
   const backStateRef = useRef({});
   backStateRef.current = { anySounding, dismissable: !!backDismissRef.current, screen };
@@ -164,6 +170,7 @@ export default function App() {
       {settingsOpen && <SettingsPage engine={engine} onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpPage onClose={() => setHelpOpen(false)} />}
       {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}
+      {engine.pendingExtend && <ExtendDialog onCancel={engine.cancelExtend} onConfirm={engine.confirmExtend} />}
 
       {quitAsk && (
         <div

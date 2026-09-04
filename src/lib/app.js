@@ -3,11 +3,11 @@
 // internally, returns a flat method-per-operation object plus the raw store
 // handle. No pub/sub — callers get results back from calls, same as RTW.
 import { IndexedDBBackend, MemoryBackend, Store, DEFAULT_THEME_ID } from "./storage.js";
-import { validateRecipe } from "./recipe.js";
+import { validateRecipe, durationAlarmId } from "./recipe.js";
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag as setInstanceTag, elapsedRunningMs, elapsedTotalMs,
-  advanceInBand, isMeasured, deriveProvenance,
+  advanceInBand, isMeasured, deriveProvenance, extendDuration,
   acquireClaimOnStart, releaseClaimOnComplete, toggleClaim as toggleClaimHolder,
 } from "./instances.js";
 import { evaluateAlarms, silenceEarliest, silenceById } from "./alarms.js";
@@ -118,6 +118,24 @@ export function createAppController(deps = {}) {
     return updated;
   }
 
+  // Temporary, per-instance duration extension (build-plan/spec addition:
+  // "Extend"). instance.stepId is always this step's own id, so the
+  // duration-reached alarm's id is derivable without fetching the recipe.
+  async function doExtendDuration(instanceId, extraMs) {
+    const instance = await store.getInstance(instanceId);
+    const updated = extendDuration(instance, extraMs, durationAlarmId(instance.stepId));
+    await store.updateInstance(updated);
+    return updated;
+  }
+
+  // Silences the duration-reached alarm specifically — what the Extend
+  // button does before opening its dialog, regardless of whether it's
+  // actually sounding right now (silenceById is already a no-op otherwise).
+  async function silenceDurationAlarm(instanceId) {
+    const instance = await store.getInstance(instanceId);
+    return silenceAlarm(instanceId, durationAlarmId(instance.stepId));
+  }
+
   function isInBand(tempC, tempBand) {
     if (!tempBand || tempC == null) return false;
     return tempC >= tempBand.lowC && tempC <= tempBand.highC;
@@ -204,6 +222,8 @@ export function createAppController(deps = {}) {
     completeInstance: doCompleteInstance,
     duplicateInstance: doDuplicateInstance,
     setTag: doSetTag,
+    extendDuration: doExtendDuration,
+    silenceDurationAlarm,
     elapsedRunningMs: (instance) => elapsedRunningMs(instance, now()),
     elapsedTotalMs: (instance) => elapsedTotalMs(instance, now()),
     tick,

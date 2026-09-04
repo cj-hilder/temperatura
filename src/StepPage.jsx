@@ -8,7 +8,7 @@ import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, completeInstance } = engine;
+  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, completeInstance, requestExtend } = engine;
   const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
   const [tagDraft, setTagDraft] = useState(null);
@@ -159,11 +159,17 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
       <div style={{ padding: "0 16px" }}>
         <h1 style={{ marginBottom: 4 }}>{step.name}</h1>
         <p style={{ color: t.colors.textMuted }}>{step.description}</p>
-        <p style={{ fontSize: 12, color: t.colors.textMuted }}>
-          {step.duration
-            ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
-            : "No set duration"}
-          {step.tempBand ? ` · Band ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
+        <p style={{ fontSize: 12, color: t.colors.textMuted, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>
+            {step.duration
+              ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
+              : "No set duration"}
+            {step.tempBand ? ` · Band ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
+            {instance?.durationExtensionMs > 0 ? ` · +${formatDuration(instance.durationExtensionMs)} extended` : ""}
+          </span>
+          {step.duration && instance && (
+            <button style={t.smallButton} onClick={() => requestExtend(instance.id)}>Extend</button>
+          )}
         </p>
 
         {claimed && latestSample && (

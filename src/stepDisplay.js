@@ -1,4 +1,5 @@
 import { elapsedRunningMs, isMeasured, deriveProvenance } from "./lib/instances.js";
+import { durationAlarmId } from "./lib/recipe.js";
 import { formatDuration, formatRemaining } from "./lib/format.js";
 
 // Resolves an alarms.js alarm id (local to one step's evaluation, e.g.
@@ -7,7 +8,7 @@ import { formatDuration, formatRemaining } from "./lib/format.js";
 // titles) and the step page (labeling each sounding alarm's Silence control).
 export function alarmName(step, alarmId) {
   if (alarmId === "__dataLoss") return "Data loss";
-  if (alarmId === `${step.id}-duration-reached`) return "Duration reached";
+  if (alarmId === durationAlarmId(step.id)) return "Duration reached";
   if (alarmId === `${step.id}-band-min`) return "Below band";
   if (alarmId === `${step.id}-band-max`) return "Above band";
   return (
@@ -36,7 +37,7 @@ export function describeStepAlarms(step) {
   }
   if (step.duration && step.durationReachedAlarm?.enabled) {
     lines.push({
-      id: `${step.id}-duration-reached`,
+      id: durationAlarmId(step.id),
       text: `Duration reached — at ${formatDuration(step.duration.ms)}`,
     });
   }
@@ -77,14 +78,21 @@ export function computeStepProgress(instance, step, { claimHolderId, latestSampl
     provenance = deriveProvenance({ measured, inBand });
   }
 
-  const remainingMs = step.duration.ms - elapsedMs;
-  const fraction = Math.max(0, Math.min(1, elapsedMs / step.duration.ms));
+  // A temporary, per-instance "Extend" only ever moves the target further
+  // away — the step's own duration.ms is untouched (see
+  // instances.js:extendDuration), so the bar/remaining-time target has to
+  // add it back in here rather than reading step.duration.ms directly.
+  const extensionMs = instance.durationExtensionMs || 0;
+  const targetMs = step.duration.ms + extensionMs;
+  const remainingMs = targetMs - elapsedMs;
+  const fraction = Math.max(0, Math.min(1, elapsedMs / targetMs));
 
   return {
     elapsedMs,
     remainingMs,
     fraction,
     provenance,
+    extensionMs,
     // Fixed-length steps are never in doubt, per spec — the estimate flag
     // only means something for an in-band duration. instance.latchedEstimate
     // still gets set internally (advanceInBand runs every tick regardless of

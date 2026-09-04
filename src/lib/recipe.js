@@ -93,24 +93,38 @@ export function validateRecipe(recipe) {
   return { valid: errors.length === 0, errors };
 }
 
+// The duration-reached alarm's id, derived from the step id alone (a step
+// has at most one) — shared by buildStepAlarmDefs, app.js's extend-duration
+// flow, and engine.js's notification wiring, so the naming convention lives
+// in exactly one place.
+export function durationAlarmId(stepId) {
+  return `${stepId}-duration-reached`;
+}
+
 /**
  * Bridges this module's storage shape to alarms.js's evaluation shape.
  * timeAlarms/tempAlarms are stored as separate untagged arrays, and the
  * duration-reached alarm lives in its own field, separate from user-created
  * time alarms — evaluateAlarms() wants one flat, kind-tagged array.
+ *
+ * `durationExtensionMs` is a per-INSTANCE temporary addition to the step's
+ * own duration (see instances.js's extendDuration) — the step definition
+ * itself is never touched by it, so it has to be folded in here, at the
+ * point where a concrete alarm def is built for one particular instance's
+ * tick, rather than stored on the step.
  * @returns {Array} stepAlarmDefs, ready for alarms.js
  */
-export function buildStepAlarmDefs(step) {
+export function buildStepAlarmDefs(step, { durationExtensionMs = 0 } = {}) {
   const defs = [
     ...step.timeAlarms.map((a) => ({ ...a, kind: "time" })),
     ...step.tempAlarms.map((a) => ({ ...a, kind: "temperature" })),
   ];
   if (step.duration && step.durationReachedAlarm?.enabled) {
     defs.push({
-      id: `${step.id}-duration-reached`,
+      id: durationAlarmId(step.id),
       kind: "duration",
       name: "Duration reached",
-      atMs: step.duration.ms,
+      atMs: step.duration.ms + durationExtensionMs,
       repeat: false,
       intervalMs: null,
       theme: step.durationReachedAlarm.theme,

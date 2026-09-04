@@ -1,5 +1,5 @@
 import { Store, MemoryBackend, STORES, DEFAULT_THEME_ID } from './src/lib/storage.js';
-import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs } from './src/lib/recipe.js';
+import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -226,6 +226,14 @@ console.log('\nbuildStepAlarmDefs — bridges recipe.js\'s storage shape to alar
   step = { ...createBlankStep('s3'), tempBand: null };
   defs = buildStepAlarmDefs(step);
   ok('no band alarms when there is no band', defs.length === 0);
+
+  step = { ...createBlankStep('s4'), duration: { ms: 1_800_000, kind: 'fixed' }, durationReachedAlarm: { enabled: true, theme: null } };
+  defs = buildStepAlarmDefs(step, { durationExtensionMs: 5 * 60_000 });
+  ok('an extension is folded into the duration-reached alarm\'s atMs', defs.find((d) => d.kind === 'duration').atMs === 1_800_000 + 5 * 60_000);
+  ok('durationAlarmId matches the id buildStepAlarmDefs actually uses', defs.find((d) => d.kind === 'duration').id === durationAlarmId('s4'));
+
+  defs = buildStepAlarmDefs(step);
+  ok('no extension option leaves the duration unaffected', defs.find((d) => d.kind === 'duration').atMs === 1_800_000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
