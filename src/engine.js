@@ -122,6 +122,26 @@ export function useAppEngine() {
     soundingTagsRef.current.delete(tag);
   }
 
+  // Silences every currently-sounding alarm on one instance. Needed anywhere
+  // an instance is completed other than through its own explicit Silence
+  // button: once completed it drops out of the tick loop's `active` list, so
+  // nothing would ever call stopAlarm() for it again and a sounding voice
+  // would play forever. Spec also says completing means "no more of the
+  // step's alarms will trigger," which a still-sounding alarm violates in
+  // spirit even before that leak.
+  async function stopAllSounding(instanceId) {
+    const instance = await app.store.getInstance(instanceId);
+    const soundingIds = instance
+      ? Object.entries(instance.alarmState)
+          .filter(([, s]) => s.sounding)
+          .map(([id]) => id)
+      : [];
+    for (const alarmId of soundingIds) {
+      await app.silenceAlarm(instanceId, alarmId);
+      stopAndForget(instanceId, alarmId);
+    }
+  }
+
   // In-app per-alarm Silence button and the notification's Silence action —
   // both target a specific alarm, per spec (only the thermometer button is
   // earliest-first).
@@ -129,6 +149,30 @@ export function useAppEngine() {
     async (instanceId, alarmId) => {
       await app.silenceAlarm(instanceId, alarmId);
       stopAndForget(instanceId, alarmId);
+      await refresh();
+    },
+    [app, refresh]
+  );
+
+  const completeInstance = useCallback(
+    async (instanceId) => {
+      await stopAllSounding(instanceId);
+      await app.completeInstance(instanceId);
+      await refresh();
+    },
+    [app, refresh]
+  );
+
+  // Closing a recipe completes every running instance of its steps
+  // (store.closeRecipe) — same leak, same fix, applied to every instance
+  // being closed rather than just one.
+  const closeRecipe = useCallback(
+    async (recipeId) => {
+      const instances = await app.store.listInstancesForRecipe(recipeId);
+      for (const instance of instances) {
+        if (instance.status !== "completed") await stopAllSounding(instance.id);
+      }
+      await app.closeRecipe(recipeId);
       await refresh();
     },
     [app, refresh]
@@ -293,5 +337,7 @@ export function useAppEngine() {
     claimHolderId,
     openRecipes,
     silenceAlarm,
+    completeInstance,
+    closeRecipe,
   };
 }

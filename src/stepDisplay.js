@@ -15,6 +15,32 @@ export function alarmName(step, alarmId) {
   );
 }
 
+// One human-readable line per configured alarm — every time alarm, every
+// temperature alarm, and the duration-reached alarm if enabled — so the step
+// page can list them all without entering edit mode.
+export function describeStepAlarms(step) {
+  const lines = [];
+  for (const a of step.timeAlarms) {
+    const minutes = a.atMs / 60000;
+    lines.push({
+      id: a.id,
+      text: a.repeat
+        ? `${a.name} — ${minutes} min in, every ${a.intervalMs / 60000} min`
+        : `${a.name} — ${minutes} min in`,
+    });
+  }
+  for (const a of step.tempAlarms) {
+    lines.push({ id: a.id, text: `${a.name} — ${a.thresholdC}°C, ${a.direction}` });
+  }
+  if (step.duration && step.durationReachedAlarm?.enabled) {
+    lines.push({
+      id: `${step.id}-duration-reached`,
+      text: `Duration reached — at ${formatDuration(step.duration.ms)}`,
+    });
+  }
+  return lines;
+}
+
 /**
  * What a step's progress bar / elapsed figure should show for one instance.
  * Returns null if the step has no duration — spec: no progress bar at all

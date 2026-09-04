@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RecipeEditor from "./RecipeEditor.jsx";
+import { formatDuration } from "./lib/format.js";
 import * as t from "./theme.js";
 
 export default function RecipePage({ engine, recipeId, initialEditing, navigate }) {
@@ -101,7 +102,9 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate 
             <div style={{ fontWeight: 700 }}>{step.name}</div>
             <div style={{ ...t.clamp(2), fontSize: 13, color: t.colors.textMuted }}>{step.description}</div>
             <div style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
-              {step.duration ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration` : "No duration"}
+              {step.duration
+                ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
+                : "No duration"}
               {step.tempBand ? ` · ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
               {running.length > 0 ? ` · ${running.length} in progress` : ""}
             </div>

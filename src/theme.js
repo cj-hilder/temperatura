@@ -14,7 +14,15 @@ export const colors = {
 };
 
 export const page = {
-  minHeight: "100dvh",
+  // #root is a fixed-height, overflow:hidden shell (index.html) — the usual
+  // app-shell trick to kill iOS/Android rubber-banding on the outer page.
+  // That means each page's own top-level div has to manage its OWN scrolling
+  // rather than relying on the document to grow, or content taller than one
+  // screen (e.g. a step edit form with several alarms) is simply clipped,
+  // not scrollable.
+  height: "100dvh",
+  overflowY: "auto",
+  boxSizing: "border-box",
   background: colors.dialFace,
   color: colors.text,
   fontFamily: "system-ui, -apple-system, sans-serif",

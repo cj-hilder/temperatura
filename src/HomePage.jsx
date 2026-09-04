@@ -4,7 +4,7 @@ import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDi
 import * as t from "./theme.js";
 
 export default function HomePage({ engine, navigate }) {
-  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer } = engine;
+  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer, closeRecipe } = engine;
   const [picker, setPicker] = useState(null); // null | "open" | "search"
   const [allRecipes, setAllRecipes] = useState([]);
   const [query, setQuery] = useState("");
@@ -31,8 +31,7 @@ export default function HomePage({ engine, navigate }) {
   };
 
   const handleClose = async (recipeId) => {
-    await app.closeRecipe(recipeId);
-    await refresh();
+    await closeRecipe(recipeId); // also silences any alarms still sounding
     setCloseConfirmId(null);
   };
 

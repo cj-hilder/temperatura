@@ -1,11 +1,12 @@
 import { useState } from "react";
 import StepEditor from "./StepEditor.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
-import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName } from "./stepDisplay.js";
+import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName, describeStepAlarms } from "./stepDisplay.js";
+import { formatDuration } from "./lib/format.js";
 import * as t from "./theme.js";
 
 export default function StepPage({ engine, recipeId, stepId, navigate }) {
-  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm } = engine;
+  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, completeInstance } = engine;
   const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
   const [tagDraft, setTagDraft] = useState(null);
@@ -49,8 +50,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
     await refresh();
   };
   const handleComplete = async () => {
-    await app.completeInstance(instance.id);
-    await refresh();
+    await completeInstance(instance.id); // also silences any alarms still sounding
   };
   const handleDuplicate = async () => {
     await app.duplicateInstance(instance.id, crypto.randomUUID(), stepAlarmDefs);
@@ -76,6 +76,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
         .filter(([, s]) => s.sounding)
         .map(([id]) => ({ id, name: alarmName(step, id) }))
     : [];
+  const alarmLines = describeStepAlarms(step);
 
   return (
     <div style={t.page}>
@@ -115,7 +116,9 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
         <h1 style={{ marginBottom: 4 }}>{step.name}</h1>
         <p style={{ color: t.colors.textMuted }}>{step.description}</p>
         <p style={{ fontSize: 12, color: t.colors.textMuted }}>
-          {step.duration ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration` : "No duration"}
+          {step.duration
+            ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
+            : "No duration"}
           {step.tempBand ? ` · Band ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
         </p>
 
@@ -151,6 +154,15 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
                 <span>{a.name}</span>
                 <button style={t.smallButton} onClick={() => silenceAlarm(instance.id, a.id)}>Silence</button>
               </div>
+            ))}
+          </div>
+        )}
+
+        {alarmLines.length > 0 && (
+          <div style={{ margin: "12px 0" }}>
+            <h4 style={{ marginBottom: 4 }}>Alarms</h4>
+            {alarmLines.map((line) => (
+              <p key={line.id} style={{ fontSize: 13, margin: "4px 0" }}>{line.text}</p>
             ))}
           </div>
         )}
