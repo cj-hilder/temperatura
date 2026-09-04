@@ -242,12 +242,22 @@ export class Store {
   // unconditionally on every launch rather than tracking "have I seeded yet."
   async ensureDefaultTheme() {
     const existing = await this.getAlarmTheme(DEFAULT_THEME_ID);
-    if (existing) return existing;
+    if (existing) {
+      // One-time correction for an install seeded before the "Built-in"
+      // rename and the repeatIntervalSeconds field existed — only touches a
+      // field still at its original seed value, never one the user has
+      // since customized in Settings.
+      const patch = {};
+      if (existing.name === "Default") patch.name = "Built-in";
+      if (existing.repeatIntervalSeconds === undefined) patch.repeatIntervalSeconds = 1;
+      return Object.keys(patch).length > 0 ? this.updateAlarmTheme(DEFAULT_THEME_ID, patch) : existing;
+    }
     return this.createAlarmTheme({
       id: DEFAULT_THEME_ID,
-      name: "Default",
+      name: "Built-in",
       rampSeconds: 2,
       vibrate: true,
+      repeatIntervalSeconds: 1,
       isDefault: true,
     });
   }

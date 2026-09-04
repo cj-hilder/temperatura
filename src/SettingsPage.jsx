@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { decodeSound, isSoundTooLong, MAX_SOUND_SECONDS } from "./lib/alarmPlayer.js";
+import { decodeSound, isSoundTooLong, MAX_SOUND_SECONDS, playAlarm, stopAlarm } from "./lib/alarmPlayer.js";
 import * as t from "./theme.js";
+
+// A stable tag for the one preview voice Settings ever plays — only one
+// ThemeCard is ever expanded (and so previewable) at a time, so this never
+// needs to be per-card.
+const PREVIEW_TAG = "__theme-preview";
 
 const NEW_THEME = Symbol("new-theme");
 
@@ -91,11 +96,37 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
   const [name, setName] = useState(theme?.name ?? "");
   const [rampSeconds, setRampSeconds] = useState(theme?.rampSeconds ?? 2);
   const [vibrate, setVibrate] = useState(theme?.vibrate ?? true);
+  const [repeatIntervalSeconds, setRepeatIntervalSeconds] = useState(theme?.repeatIntervalSeconds ?? 0);
   const [pickedSound, setPickedSound] = useState(null); // { arrayBuffer, fileName } | null
   const [pickError, setPickError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef(null);
+
+  // Never leave a preview voice sounding behind if the user collapses the
+  // card, saves, or navigates away without pressing Stop.
+  useEffect(() => () => stopAlarm(PREVIEW_TAG), []);
+  const stopPreview = () => { stopAlarm(PREVIEW_TAG); setPreviewing(false); };
+
+  const canPreview = isDefault || !!pickedSound || (!isNew && !!theme);
+  const togglePreview = async () => {
+    if (previewing) return stopPreview();
+    setPickError(null);
+    const ctx = engine.getAudioContext();
+    if (!ctx) return setPickError("Audio isn't ready yet — try again in a moment.");
+    let buffer = null;
+    if (!isDefault) {
+      const arrayBuffer = pickedSound ? pickedSound.arrayBuffer : await app.store.getSound(theme.id);
+      buffer = arrayBuffer ? await decodeSound(ctx, arrayBuffer) : null;
+    }
+    playAlarm(ctx, PREVIEW_TAG, {
+      buffer,
+      rampSeconds: Number(rampSeconds),
+      repeatIntervalSeconds: Number(repeatIntervalSeconds),
+    });
+    setPreviewing(true);
+  };
 
   const pickFile = async (file) => {
     setPickError(null);
@@ -124,10 +155,12 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
       return;
     }
     try {
+      const fields = { name, rampSeconds: Number(rampSeconds), vibrate, repeatIntervalSeconds: Number(repeatIntervalSeconds) };
       const saved = isNew
-        ? await app.store.createAlarmTheme({ name, rampSeconds: Number(rampSeconds), vibrate })
-        : await app.store.updateAlarmTheme(theme.id, { name, rampSeconds: Number(rampSeconds), vibrate });
+        ? await app.store.createAlarmTheme(fields)
+        : await app.store.updateAlarmTheme(theme.id, fields);
       if (pickedSound) await app.store.saveSound(saved.id, pickedSound.arrayBuffer);
+      stopPreview();
       onSaved();
     } catch (e) {
       setSaveError(e.message);
@@ -144,7 +177,7 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
       <div style={{ ...t.card, cursor: "pointer" }} onClick={onToggle}>
         <div style={{ fontWeight: 700 }}>{theme.name}</div>
         <div style={{ fontSize: 12.5, color: t.colors.textMuted }}>
-          Ramp {theme.rampSeconds}s · {theme.vibrate ? "Vibrate" : "No vibrate"}
+          Ramp {theme.rampSeconds}s · {theme.repeatIntervalSeconds ?? 0}s gap between repeats · {theme.vibrate ? "Vibrate" : "No vibrate"}
         </div>
       </div>
     );
@@ -166,21 +199,30 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
           <input ref={fileRef} type="file" accept="audio/mpeg" hidden onChange={(e) => e.target.files[0] && pickFile(e.target.files[0])} />
           {pickedSound && <span style={{ marginLeft: 8, fontSize: 12.5, color: t.colors.textMuted }}>{pickedSound.fileName}</span>}
           {!pickedSound && !isNew && <span style={{ marginLeft: 8, fontSize: 12.5, color: t.colors.textMuted }}>Current sound kept unless you pick a new one.</span>}
-          {pickError && <p style={t.errorText}>{pickError}</p>}
         </>
       )}
 
       <label style={t.label}>Ramp (seconds to full volume)</label>
       <input style={{ ...t.input, width: 100 }} type="number" min={0} value={rampSeconds} onChange={(e) => setRampSeconds(e.target.value)} />
 
+      <label style={t.label}>Repeat interval (seconds of silence between repeats)</label>
+      <input style={{ ...t.input, width: 100 }} type="number" min={0} value={repeatIntervalSeconds} onChange={(e) => setRepeatIntervalSeconds(e.target.value)} />
+
       <label style={{ ...t.label, display: "flex", alignItems: "center", gap: 6 }}>
         <input type="checkbox" checked={vibrate} onChange={(e) => setVibrate(e.target.checked)} /> Vibrate
       </label>
 
+      {canPreview && (
+        <button style={{ ...t.smallButton, marginTop: 10 }} onClick={togglePreview}>
+          {previewing ? "Stop preview" : "Preview"}
+        </button>
+      )}
+      {pickError && <p style={t.errorText}>{pickError}</p>}
+
       {saveError && <p style={t.errorText}>{saveError}</p>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button style={t.secondaryButton} onClick={onToggle}>Cancel</button>
+        <button style={t.secondaryButton} onClick={() => { stopPreview(); onToggle(); }}>Cancel</button>
         <button style={t.primaryButton} onClick={save}>Save</button>
         {!isDefault && !isNew && (
           deleteConfirm ? (

@@ -4,13 +4,13 @@ import * as t from "./theme.js";
 const MIN_MS = 60_000;
 
 // A theme picker for one alarm. Non-default themes only — the synthetic
-// "Default" option already represents the seeded default theme record, so
+// "Built-in" option already represents the seeded default theme record, so
 // listing it too would show two functionally-identical entries (see
 // ensureDefaultTheme in storage.js).
 function ThemeSelect({ themes, value, onChange }) {
   return (
     <select style={t.input} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">Default</option>
+      <option value="">Built-in</option>
       {themes.filter((th) => !th.isDefault).map((th) => (
         <option key={th.id} value={th.id}>{th.name}</option>
       ))}

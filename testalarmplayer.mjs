@@ -15,15 +15,17 @@ console.log('\nisSoundTooLong — the pure half of "5 second maximum, rejected a
 
 console.log('\nresolvePlaybackParams — a theme\'s playback fields, with the default theme\'s own fallbacks:');
 {
-  const r = resolvePlaybackParams({ rampSeconds: 4, vibrate: false });
-  ok('a real theme\'s fields pass through', r.rampSeconds === 4 && r.vibrate === false);
+  const r = resolvePlaybackParams({ rampSeconds: 4, vibrate: false, repeatIntervalSeconds: 3 });
+  ok('a real theme\'s fields pass through', r.rampSeconds === 4 && r.vibrate === false && r.repeatIntervalSeconds === 3);
 
   const missing = resolvePlaybackParams(null);
   ok('a missing theme (deleted out from under an alarm) falls back to rampSeconds 2', missing.rampSeconds === 2);
   ok('a missing theme falls back to vibrate true', missing.vibrate === true);
+  ok('a missing theme falls back to repeatIntervalSeconds 0 (back to back)', missing.repeatIntervalSeconds === 0);
 
   const partial = resolvePlaybackParams({ rampSeconds: 3 });
   ok('a theme missing vibrate falls back just for that field', partial.rampSeconds === 3 && partial.vibrate === true);
+  ok('a theme missing repeatIntervalSeconds falls back just for that field', partial.repeatIntervalSeconds === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -124,11 +124,29 @@ console.log('\nensureDefaultTheme — seeds the bundled synthesized theme exactl
   const seeded = await store.ensureDefaultTheme();
   ok('seeds the well-known id', seeded.id === DEFAULT_THEME_ID);
   ok('seeds the fields that match engine.js\'s prior hardcoded playback', seeded.rampSeconds === 2 && seeded.vibrate === true);
+  ok('seeds it as "Built-in"', seeded.name === 'Built-in');
+  ok('seeds a repeat interval', seeded.repeatIntervalSeconds === 1);
   ok('seeds it as the default theme', seeded.isDefault === true);
 
   await store.updateAlarmTheme(DEFAULT_THEME_ID, { rampSeconds: 5 });
   const again = await store.ensureDefaultTheme();
   ok('a second call is idempotent — does not overwrite an edited default', again.rampSeconds === 5);
+}
+
+console.log('\nensureDefaultTheme migrates a pre-rename install without touching a customized field:');
+{
+  const store = mkStore();
+  // Simulate an install seeded before "Built-in" and repeatIntervalSeconds
+  // existed, matching what was actually deployed.
+  await store.createAlarmTheme({ id: DEFAULT_THEME_ID, name: 'Default', rampSeconds: 2, vibrate: true, isDefault: true });
+  const migrated = await store.ensureDefaultTheme();
+  ok('renames a still-default name to "Built-in"', migrated.name === 'Built-in');
+  ok('backfills the missing repeat interval', migrated.repeatIntervalSeconds === 1);
+
+  const store2 = mkStore();
+  await store2.createAlarmTheme({ id: DEFAULT_THEME_ID, name: 'My Bell', rampSeconds: 2, vibrate: true, isDefault: true });
+  const untouched = await store2.ensureDefaultTheme();
+  ok('never renames a name the user already customized', untouched.name === 'My Bell');
 }
 
 console.log('\nSettings:');

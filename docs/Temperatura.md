@@ -159,6 +159,7 @@ Alarm themes: each alarm theme consists of
 * Alarm theme name  
 * Sound file, user picks from their file system  
 * Ramp \- how many seconds to take for the sound to go from silence to full volume (device media volume)  
+* Repeat interval \- how many seconds of silence to leave between repeats of the sound while the alarm is sounding  
 * Vibrate \- whether or not to vibrate for this alarm. A boolean, not a pattern: the vibration pattern itself is fixed in code (see How alarms work).
 
 User can create, edit, and delete alarm themes.
@@ -171,7 +172,7 @@ There is also an alarm theme for lost BLE connection.
 * The picked file is decoded once and stored in IndexedDB as an ArrayBuffer, alongside the theme. It is NOT stored as a `FileSystemFileHandle`: an alarm must be playable while the app is hidden, with no user gesture and no permission prompt available, so the audio has to be owned by the app rather than referenced on the device's filesystem.
 * Playback goes through `decodeAudioData` on the keep-alive `AudioContext`, not an `<audio>` element. That context is already resumed and already holding a media session, so it is the one audio path proven to survive backgrounding on this platform.
 * The ramp is a `linearRampToValueAtTime` on a gain node, from silence to 1.0 (which is device media volume) over the theme's ramp seconds.
-* The decoded buffer loops until the alarm is silenced. If ramp is non-zero the ramp runs once, on the first pass, not on every loop.
+* The decoded buffer repeats until the alarm is silenced, with the theme's repeat interval as silence between each play — not a seamless native loop, since that would leave no way to configure a gap. If ramp is non-zero the ramp runs once, on the first pass, not on every repeat.
 * If decoding fails at any point, including at play time, fall back to the built-in synthesised tone (below) and log it. An alarm must never fail silently.
 
 #### Bundled defaults

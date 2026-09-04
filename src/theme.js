@@ -140,6 +140,12 @@ export const fullScreenOverlay = {
   zIndex: 50,
   overflowY: "auto",
   background: colors.dialFace,
+  // Without an explicit family, headings inside this overlay fall back to
+  // the browser's default serif heading font instead of matching the rest
+  // of the app — page (above) sets this same family, but this style never
+  // did.
+  color: colors.text,
+  fontFamily: "system-ui, -apple-system, sans-serif",
 };
 
 export const errorText = {

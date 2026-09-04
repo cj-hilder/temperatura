@@ -314,8 +314,8 @@ export function useAppEngine() {
                 // per-tick cost.
                 const buffer = soundBuf ? await decodeSound(ctx, soundBuf) : null;
                 if (soundBuf && !buffer) console.error(`theme "${theme.id}" sound failed to decode — falling back to the built-in tone`);
-                const { rampSeconds } = resolvePlaybackParams(theme);
-                playAlarm(ctx, tag, { buffer, rampSeconds });
+                const { rampSeconds, repeatIntervalSeconds } = resolvePlaybackParams(theme);
+                playAlarm(ctx, tag, { buffer, rampSeconds, repeatIntervalSeconds });
               }
               soundingTagsRef.current.add(tag);
             }
