@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
+import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function HomePage({ engine, navigate }) {
@@ -10,6 +11,8 @@ export default function HomePage({ engine, navigate }) {
   const [allRecipes, setAllRecipes] = useState([]);
   const [query, setQuery] = useState("");
   const [closeConfirmId, setCloseConfirmId] = useState(null);
+  // Hardware back closes the open/search overlay exactly like its own Close would.
+  useBackDismiss(!!picker, () => setPicker(null));
 
   useEffect(() => {
     if (picker) app.listRecipes().then(setAllRecipes);

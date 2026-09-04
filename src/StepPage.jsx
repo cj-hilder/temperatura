@@ -3,6 +3,7 @@ import StepEditor from "./StepEditor.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName, describeStepAlarms } from "./stepDisplay.js";
 import { formatDuration } from "./lib/format.js";
+import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function StepPage({ engine, recipeId, stepId, navigate }) {
@@ -10,6 +11,12 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
   const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
   const [tagDraft, setTagDraft] = useState(null);
+  const closeEditor = async () => {
+    await refresh();
+    setEditing(false);
+  };
+  // Hardware back closes the editor exactly like its own ✕ would.
+  useBackDismiss(editing, closeEditor);
 
   const entry = openRecipes.find((r) => r.recipe.id === recipeId);
 
@@ -56,10 +63,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
         engine={engine}
         recipe={recipe}
         step={step}
-        onDone={async () => {
-          await refresh();
-          setEditing(false);
-        }}
+        onDone={closeEditor}
         onDeleted={() => navigate({ view: "recipe", recipeId })}
       />
     );

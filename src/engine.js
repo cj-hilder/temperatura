@@ -338,6 +338,7 @@ export function useAppEngine() {
     claimHolderId,
     openRecipes,
     silenceAlarm,
+    silenceEarliestGlobal,
     completeInstance,
     closeRecipe,
   };

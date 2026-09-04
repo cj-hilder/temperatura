@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import RecipeEditor from "./RecipeEditor.jsx";
 import { formatDuration } from "./lib/format.js";
+import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function RecipePage({ engine, recipeId, initialEditing, navigate }) {
   const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
+  const closeEditor = async () => {
+    await refresh();
+    setEditing(false);
+  };
+  // Hardware back closes the editor exactly like its own ✕ would.
+  useBackDismiss(editing, closeEditor);
 
   const entry = openRecipes.find((r) => r.recipe.id === recipeId);
 
@@ -43,10 +50,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate 
       <RecipeEditor
         engine={engine}
         recipe={recipe}
-        onDone={async () => {
-          await refresh();
-          setEditing(false);
-        }}
+        onDone={closeEditor}
         onDeleted={() => navigate({ view: "home" })}
       />
     );
