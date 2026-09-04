@@ -8,6 +8,8 @@ import RecipePage from "./RecipePage.jsx";
 import StepPage from "./StepPage.jsx";
 import HamburgerMenu from "./HamburgerMenu.jsx";
 import SettingsPage from "./SettingsPage.jsx";
+import HelpPage from "./HelpPage.jsx";
+import AboutPage from "./AboutPage.jsx";
 import * as t from "./theme.js";
 
 export default function App() {
@@ -54,15 +56,20 @@ export default function App() {
   const [quitAsk, setQuitAsk] = useState(false);
   useBackDismiss(quitAsk, () => setQuitAsk(false));
 
-  // The hamburger menu and Settings are mutually exclusive (opening one
-  // always closes the other), so they never fight over the single
-  // back-dismiss slot. Back on Settings goes to the menu, not straight
-  // through to whatever page is underneath — the same "close the topmost
-  // thing first" rule as everything else back dismisses.
+  // The hamburger menu and each of its full-screen destinations are mutually
+  // exclusive (opening one always closes whatever was open before), so they
+  // never fight over the single back-dismiss slot. Back on any of them goes
+  // to the menu, not straight through to whatever page is underneath — the
+  // same "close the topmost thing first" rule as everything else back
+  // dismisses.
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   useBackDismiss(menuOpen, () => setMenuOpen(false));
   useBackDismiss(settingsOpen, () => { setSettingsOpen(false); setMenuOpen(true); });
+  useBackDismiss(helpOpen, () => { setHelpOpen(false); setMenuOpen(true); });
+  useBackDismiss(aboutOpen, () => { setAboutOpen(false); setMenuOpen(true); });
 
   const backStateRef = useRef({});
   backStateRef.current = { anySounding, dismissable: !!backDismissRef.current, screen };
@@ -129,6 +136,7 @@ export default function App() {
   }
 
   const onOpenMenu = () => setMenuOpen(true);
+  const currentRecipeId = screen.view === "recipe" || screen.view === "step" ? screen.recipeId : null;
   const activeScreen =
     screen.view === "recipe" ? (
       <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} onOpenMenu={onOpenMenu} />
@@ -144,11 +152,18 @@ export default function App() {
 
       {menuOpen && (
         <HamburgerMenu
+          engine={engine}
+          currentRecipeId={currentRecipeId}
+          navigate={setScreen}
           onClose={() => setMenuOpen(false)}
           onOpenSettings={() => { setMenuOpen(false); setSettingsOpen(true); }}
+          onOpenHelp={() => { setMenuOpen(false); setHelpOpen(true); }}
+          onOpenAbout={() => { setMenuOpen(false); setAboutOpen(true); }}
         />
       )}
       {settingsOpen && <SettingsPage engine={engine} onClose={() => setSettingsOpen(false)} />}
+      {helpOpen && <HelpPage onClose={() => setHelpOpen(false)} />}
+      {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}
 
       {quitAsk && (
         <div
