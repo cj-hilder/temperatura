@@ -3,7 +3,7 @@ import * as t from "./theme.js";
 
 const MIN_MS = 60_000;
 
-export default function StepEditor({ engine, recipe, step, onDone }) {
+export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) {
   const { app, openRecipes } = engine;
   const hasRunningInstance = (openRecipes.find((r) => r.recipe.id === recipe.id)?.instances ?? []).some(
     (i) => i.stepId === step.id && i.status !== "completed"
@@ -57,7 +57,9 @@ export default function StepEditor({ engine, recipe, step, onDone }) {
 
   const del = async () => {
     await app.updateRecipe(recipe.id, { steps: recipe.steps.filter((s) => s.id !== step.id) });
-    onDone();
+    // Not onDone(): this step no longer exists, so re-rendering the
+    // (now-gone) step view would strand the user on a dead-end screen.
+    onDeleted();
   };
 
   return (

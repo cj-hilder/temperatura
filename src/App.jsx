@@ -14,7 +14,7 @@ export default function App() {
       <div style={{ ...t.page, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
         <h1>Temperatura</h1>
         <p style={{ color: t.colors.textMuted, textAlign: "center", padding: "0 24px" }}>
-          Tap to enable background alarms — this needs a tap to unlock audio and notifications.
+          time x temperature
         </p>
         <button style={t.primaryButton} onClick={engine.startKeepAlive}>Start</button>
       </div>

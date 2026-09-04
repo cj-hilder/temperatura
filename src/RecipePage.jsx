@@ -11,13 +11,32 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate 
 
   // The recipe may not be in `openRecipes` yet on the very first render after
   // navigation (refresh() is async) — refetch directly rather than blocking.
+  // Distinguish "haven't checked yet" (still null, keep showing Loading) from
+  // "checked and it's genuinely gone" (checkedFallback flips true even when
+  // the fetch resolves to nothing) — without that distinction, a deleted
+  // recipe left `recipe` falsy forever and stranded the page on "Loading…"
+  // with no way back to Home.
   const [fallbackRecipe, setFallbackRecipe] = useState(null);
+  const [checkedFallback, setCheckedFallback] = useState(false);
   useEffect(() => {
-    if (!entry) app.getRecipe(recipeId).then(setFallbackRecipe);
+    if (entry) return;
+    setCheckedFallback(false);
+    app.getRecipe(recipeId).then((r) => {
+      setFallbackRecipe(r ?? null);
+      setCheckedFallback(true);
+    });
   }, [entry, recipeId, app]);
 
   const recipe = entry?.recipe ?? fallbackRecipe;
-  if (!recipe) return <div style={t.page}>Loading…</div>;
+  if (!recipe) {
+    if (!checkedFallback) return <div style={t.page}>Loading…</div>;
+    return (
+      <div style={t.page}>
+        <p style={{ padding: 16 }}>This recipe no longer exists.</p>
+        <button style={{ ...t.primaryButton, margin: "0 16px" }} onClick={() => navigate({ view: "home" })}>Go home</button>
+      </div>
+    );
+  }
 
   if (editing) {
     return (
@@ -28,6 +47,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate 
           await refresh();
           setEditing(false);
         }}
+        onDeleted={() => navigate({ view: "home" })}
       />
     );
   }

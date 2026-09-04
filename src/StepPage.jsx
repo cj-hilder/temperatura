@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import StepEditor from "./StepEditor.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName, describeStepAlarms } from "./stepDisplay.js";
@@ -12,10 +12,43 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
   const [tagDraft, setTagDraft] = useState(null);
 
   const entry = openRecipes.find((r) => r.recipe.id === recipeId);
-  if (!entry) return <div style={t.page}>Loading…</div>;
+
+  // Same "loading vs. genuinely gone" distinction as RecipePage — without it,
+  // a deleted recipe left this page stuck on "Loading…" forever with no way
+  // back to Home.
+  const [fallbackChecked, setFallbackChecked] = useState(false);
+  const [fallbackMissing, setFallbackMissing] = useState(false);
+  useEffect(() => {
+    if (entry) return;
+    setFallbackChecked(false);
+    app.getRecipe(recipeId).then((r) => {
+      setFallbackMissing(!r);
+      setFallbackChecked(true);
+    });
+  }, [entry, recipeId, app]);
+
+  if (!entry) {
+    if (fallbackChecked && fallbackMissing) {
+      return (
+        <div style={t.page}>
+          <p style={{ padding: 16 }}>This recipe no longer exists.</p>
+          <button style={{ ...t.primaryButton, margin: "0 16px" }} onClick={() => navigate({ view: "home" })}>Go home</button>
+        </div>
+      );
+    }
+    return <div style={t.page}>Loading…</div>;
+  }
+
   const { recipe } = entry;
   const step = recipe.steps.find((s) => s.id === stepId);
-  if (!step) return <div style={t.page}>Step not found.</div>;
+  if (!step) {
+    return (
+      <div style={t.page}>
+        <p style={{ padding: 16 }}>This step no longer exists.</p>
+        <button style={{ ...t.primaryButton, margin: "0 16px" }} onClick={() => navigate({ view: "recipe", recipeId })}>Back to recipe</button>
+      </div>
+    );
+  }
 
   if (editing) {
     return (
@@ -27,6 +60,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
           await refresh();
           setEditing(false);
         }}
+        onDeleted={() => navigate({ view: "recipe", recipeId })}
       />
     );
   }

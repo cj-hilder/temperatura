@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
+import { FolderIcon, SearchIcon } from "./icons.jsx";
 import * as t from "./theme.js";
 
 export default function HomePage({ engine, navigate }) {
@@ -46,9 +47,9 @@ export default function HomePage({ engine, navigate }) {
     <div style={t.page}>
       <div style={t.iconRow}>
         <button style={t.iconButton} title="Menu (settings — coming soon)">☰</button>
-        <button style={t.iconButton} title="Open a recipe" onClick={() => setPicker("open")}>📂</button>
+        <button style={t.iconButton} title="Open a recipe" onClick={() => setPicker("open")}><FolderIcon /></button>
         <button style={t.iconButton} title="New recipe" onClick={handleNew}>＋</button>
-        <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}>🔍</button>
+        <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}><SearchIcon /></button>
         <div style={t.spacer} />
         <button
           style={t.iconButton}
@@ -66,7 +67,7 @@ export default function HomePage({ engine, navigate }) {
       )}
 
       {openRecipes.length === 0 && (
-        <p style={{ padding: "0 16px", color: t.colors.textMuted }}>No recipes open. Tap 📂 to open one, or ＋ to create one.</p>
+        <p style={{ padding: "0 16px", color: t.colors.textMuted }}>No recipes open. Tap Open to pick one, or ＋ to create one.</p>
       )}
 
       {openRecipes.map(({ recipe, instances }) => {

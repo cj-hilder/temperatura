@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createBlankStep } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
-export default function RecipeEditor({ engine, recipe, onDone }) {
+export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
   const { app } = engine;
   const [name, setName] = useState(recipe.name);
   const [description, setDescription] = useState(recipe.description);
@@ -37,7 +37,9 @@ export default function RecipeEditor({ engine, recipe, onDone }) {
 
   const del = async () => {
     await app.deleteRecipe(recipe.id);
-    onDone();
+    // Not onDone(): this recipe no longer exists, so re-rendering the
+    // (now-gone) recipe view would strand the user on a dead-end screen.
+    onDeleted();
   };
 
   return (
