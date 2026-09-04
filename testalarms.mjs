@@ -284,5 +284,35 @@ console.log('\nearliestSoundingAcrossInstances — the thermometer button is sha
   ok('null with no instances at all', empty === null);
 }
 
+console.log('\nEditing a running step to add a new alarm must not crash or freeze the rest of the tick:');
+{
+  // A step can be edited while an instance is running (spec: "edits take
+  // effect immediately"), so a def can show up with no matching alarmState
+  // entry — e.g. a temperature band, and its two implicit band-boundary
+  // alarms, added after this instance's alarmState was built at Start.
+  const timeDef = { id: 'time1', kind: 'time', name: 'Stir', atMs: 500, repeat: false, intervalMs: null, theme: null };
+  let state = initAlarmState([timeDef]); // instance started before the band existed
+
+  const bandMin = { id: 'band-min', kind: 'temperature', name: 'Below band', thresholdC: 20, direction: 'cooling', theme: null };
+  const bandMax = { id: 'band-max', kind: 'temperature', name: 'Above band', thresholdC: 30, direction: 'heating', theme: null };
+  let threw = false;
+  let r;
+  try {
+    r = evaluateAlarms(baseArgs({
+      stepAlarmDefs: [timeDef, bandMin, bandMax], alarmState: state,
+      isRunning: true, measured: true, tempC: 25, timeBasisMs: 200, now: 1000,
+    }));
+  } catch (e) {
+    threw = true;
+  }
+  ok('a temperature alarm with no prior state does not crash the pass', !threw);
+  ok('the new temperature alarm establishes a baseline rather than firing immediately', !r.newlyFired.some((f) => f.id === 'band-min' || f.id === 'band-max'));
+  ok('an unrelated alarm already in progress is still evaluated in the same pass', r.alarmState.time1 !== undefined);
+
+  state = r.alarmState;
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [timeDef, bandMin, bandMax], alarmState: state, isRunning: true, measured: true, tempC: 18, timeBasisMs: 700, now: 2000 }));
+  ok('the newly-added alarm fires normally on the next real crossing', r.newlyFired.some((f) => f.id === 'band-min'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -13,18 +13,23 @@ export const DATA_LOSS_ALARM_ID = "__dataLoss";
 export const DEFAULT_DEADBAND_C = 2;
 export const DATA_LOSS_TIMEOUT_MS = 5000;
 
+// Fresh runtime state for one alarm def, keyed off its kind. Shared by
+// initAlarmState (every def, at Start) and evaluateAlarms' fallback below (one
+// def at a time, for a def with no existing entry — see there for why that
+// case exists at all).
+function freshAlarmState(def) {
+  return def.kind === "temperature"
+    ? { armed: true, sounding: false, firedAt: null, lastAboveThreshold: null }
+    : { firedCount: 0, sounding: false, firedAt: null }; // "time" and "duration" share this shape.
+}
+
 // Fresh runtime state for a step's alarms — call at Start and at Restart
 // (Restart re-arms every time alarm; temperature alarms re-arm by temperature,
 // not time, so they are NOT reset here even on Restart).
 export function initAlarmState(stepAlarmDefs) {
   const state = {};
   for (const def of stepAlarmDefs) {
-    if (def.kind === "temperature") {
-      state[def.id] = { armed: true, sounding: false, firedAt: null, lastAboveThreshold: null };
-    } else {
-      // "time" and "duration" share the same one-shot/repeating shape.
-      state[def.id] = { firedCount: 0, sounding: false, firedAt: null };
-    }
+    state[def.id] = freshAlarmState(def);
   }
   state[DATA_LOSS_ALARM_ID] = { armed: true, sounding: false, firedAt: null };
   return state;
@@ -87,7 +92,13 @@ export function evaluateAlarms({
   const newlyFired = [];
 
   for (const def of stepAlarmDefs) {
-    const prev = next[def.id];
+    // A step can be edited while an instance is running (spec: "edits take
+    // effect immediately"), so a def can arrive here with no matching entry —
+    // e.g. a temperature band, and the band-boundary alarms it implies, added
+    // after this instance's alarmState was built at Start. Treat that exactly
+    // like it existed since Start rather than crashing on undefined: this def
+    // gets a fresh baseline now, same as reaching Start would have given it.
+    const prev = next[def.id] ?? freshAlarmState(def);
     if (def.kind === "temperature") {
       next[def.id] = evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired);
     } else if (isRunning) {
