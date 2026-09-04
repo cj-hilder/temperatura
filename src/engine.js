@@ -200,60 +200,80 @@ export function useAppEngine() {
   // ---- the shared 1-second tick loop, over every running/paused instance ----
   useEffect(() => {
     const timer = setInterval(async () => {
-      const allInstances = await app.store.listInstances();
-      const active = allInstances.filter((i) => i.status === "running" || i.status === "paused");
-      if (active.length === 0) {
-        routerRef.current?.tick([]);
-        return;
-      }
-
-      const sample = latestSampleRef.current;
-      const packetAt = lastPacketAtRef.current;
-      const msSinceLastPacket = packetAt != null ? Date.now() - packetAt : null;
-      const readingValid = !!(sample && sample.probePresent && sample.tempC != null);
-      const tempC = sample?.tempC ?? null;
-
-      const allSounding = [];
-      for (const instance of active) {
-        const recipe = recipesRef.current[instance.recipeId];
-        const step = recipe?.steps.find((s) => s.id === instance.stepId);
-        if (!recipe || !step) continue;
-
-        const stepAlarmDefs = buildStepAlarmDefs(step);
-        const hasTempInterest = !!(step.tempBand || step.tempAlarms.length > 0);
-        const result = await app.tick(instance.id, {
-          stepAlarmDefs,
-          hasTempInterest,
-          tempBand: step.tempBand,
-          tempC,
-          msSinceLastPacket,
-          readingValid,
-        });
-
-        const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
-        for (const fired of result.newlyFired) {
-          const tag = compositeTag(instance.id, fired.id);
-          const ctx = keepAliveRef.current.audioRef.current?.ctx;
-          if (ctx) playAlarm(ctx, tag, { buffer: null, rampSeconds: 2 });
-          soundingTagsRef.current.add(tag);
+      // refresh() MUST run every cycle no matter what — it's the only thing
+      // that makes the UI's elapsed-time display advance at all (there is no
+      // independent re-render timer; pages recompute elapsed from Date.now()
+      // but only ever do that when React re-renders them). Without this
+      // try/finally, a single instance whose tick throws (a bad/legacy
+      // record, a lookup miss, anything) would abort the whole cycle before
+      // reaching refresh() — freezing the display AND silencing every
+      // instance's alarms, every single cycle, forever, with no visible
+      // error unless someone happens to be watching devtools.
+      try {
+        const allInstances = await app.store.listInstances();
+        const active = allInstances.filter((i) => i.status === "running" || i.status === "paused");
+        if (active.length === 0) {
+          routerRef.current?.tick([]);
+          return;
         }
-        for (const tag of [...soundingTagsRef.current]) {
-          if (tag.startsWith(`${instance.id}:`) && !stillSounding.has(tag)) {
-            stopAlarm(tag);
-            soundingTagsRef.current.delete(tag);
+
+        const sample = latestSampleRef.current;
+        const packetAt = lastPacketAtRef.current;
+        const msSinceLastPacket = packetAt != null ? Date.now() - packetAt : null;
+        const readingValid = !!(sample && sample.probePresent && sample.tempC != null);
+        const tempC = sample?.tempC ?? null;
+
+        const allSounding = [];
+        for (const instance of active) {
+          // Isolated per instance too: one bad instance must not stop the
+          // rest from ticking or stop the notify router from seeing them.
+          try {
+            const recipe = recipesRef.current[instance.recipeId];
+            const step = recipe?.steps.find((s) => s.id === instance.stepId);
+            if (!recipe || !step) continue;
+
+            const stepAlarmDefs = buildStepAlarmDefs(step);
+            const hasTempInterest = !!(step.tempBand || step.tempAlarms.length > 0);
+            const result = await app.tick(instance.id, {
+              stepAlarmDefs,
+              hasTempInterest,
+              tempBand: step.tempBand,
+              tempC,
+              msSinceLastPacket,
+              readingValid,
+            });
+
+            const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
+            for (const fired of result.newlyFired) {
+              const tag = compositeTag(instance.id, fired.id);
+              const ctx = keepAliveRef.current.audioRef.current?.ctx;
+              if (ctx) playAlarm(ctx, tag, { buffer: null, rampSeconds: 2 });
+              soundingTagsRef.current.add(tag);
+            }
+            for (const tag of [...soundingTagsRef.current]) {
+              if (tag.startsWith(`${instance.id}:`) && !stillSounding.has(tag)) {
+                stopAlarm(tag);
+                soundingTagsRef.current.delete(tag);
+              }
+            }
+            for (const alarmId of result.sounding) {
+              allSounding.push({
+                id: compositeTag(instance.id, alarmId),
+                title: recipe.name,
+                body: alarmName(step, alarmId),
+                vibrate: VIBRATE_PATTERN,
+              });
+            }
+          } catch (err) {
+            console.error(`tick failed for instance ${instance.id}`, err);
           }
         }
-        for (const alarmId of result.sounding) {
-          allSounding.push({
-            id: compositeTag(instance.id, alarmId),
-            title: recipe.name,
-            body: alarmName(step, alarmId),
-            vibrate: VIBRATE_PATTERN,
-          });
-        }
+        routerRef.current?.tick(allSounding);
+      } catch (err) {
+        console.error("tick loop failed", err);
+      } finally {
+        refresh();
       }
-      routerRef.current?.tick(allSounding);
-      refresh();
     }, TICK_INTERVAL_MS);
     return () => clearInterval(timer);
     // Deliberately NOT depending on `keepAlive` — see keepAliveRef's comment
