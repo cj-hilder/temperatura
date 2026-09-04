@@ -36,6 +36,17 @@ function compositeTag(instanceId, alarmId) {
 
 export function useAppEngine() {
   const keepAlive = useKeepAlive();
+  // useKeepAlive() returns a fresh object every render (only its internal
+  // refs are stable), so mirror it into a ref for effects that must NOT
+  // re-run on every render just because this identity changed — see the tick
+  // loop below, which used to list `keepAlive` as a dependency and would
+  // tear down and recreate its setInterval on every render. Real BLE
+  // measurements arrive roughly every 750ms, faster than the 1s tick
+  // interval, so the interval was being cleared before it ever fired once:
+  // no tick, no alarm evaluation, no sound, no notification — total silence,
+  // despite everything else in the app working normally.
+  const keepAliveRef = useRef(keepAlive);
+  keepAliveRef.current = keepAlive;
   const appRef = useRef(null);
   if (!appRef.current) {
     appRef.current = createAppController({ backend: new IndexedDBBackend() });
@@ -222,7 +233,7 @@ export function useAppEngine() {
         const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
         for (const fired of result.newlyFired) {
           const tag = compositeTag(instance.id, fired.id);
-          const ctx = keepAlive.audioRef.current?.ctx;
+          const ctx = keepAliveRef.current.audioRef.current?.ctx;
           if (ctx) playAlarm(ctx, tag, { buffer: null, rampSeconds: 2 });
           soundingTagsRef.current.add(tag);
         }
@@ -245,9 +256,9 @@ export function useAppEngine() {
       refresh();
     }, TICK_INTERVAL_MS);
     return () => clearInterval(timer);
-    // app and keepAlive.audioRef are stable for the life of this hook instance —
-    // see useKeepAlive.js: refs are memoized by useRef regardless of render.
-  }, [app, keepAlive, refresh]);
+    // Deliberately NOT depending on `keepAlive` — see keepAliveRef's comment
+    // above. `app` and `refresh` are stable for the life of this hook instance.
+  }, [app, refresh]);
 
   return {
     app,
