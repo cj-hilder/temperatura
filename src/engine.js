@@ -282,6 +282,7 @@ export function useAppEngine() {
               stepAlarmDefs,
               hasTempInterest,
               tempBand: step.tempBand,
+              duration: step.duration,
               tempC,
               msSinceLastPacket,
               readingValid,

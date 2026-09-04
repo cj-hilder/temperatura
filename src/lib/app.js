@@ -120,7 +120,7 @@ export function createAppController(deps = {}) {
    * restart, on the very first evaluation: recovery is not a special case,
    * it's just this same call with a larger gap since lastSampleAt.
    */
-  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, tempC, msSinceLastPacket, readingValid }) {
+  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid }) {
     const instance = await store.getInstance(instanceId);
     const claimHolderId = await getClaimHolderId();
     const claimed = claimHolderId === instanceId;
@@ -130,11 +130,19 @@ export function createAppController(deps = {}) {
     const t = now();
     const advanced = advanceInBand(instance, { measured, inBand }, t);
     const running = advanced.status === "running";
+    // Time/duration alarms must never disagree with the progress bar about
+    // when a duration is reached, so they share its exact basis: an
+    // "in temperature band" duration counts accumulatedInBandMs (same value
+    // the bar shows), everything else (no duration, or "fixed length", which
+    // the spec pins as always-measured/never-in-doubt regardless of any
+    // temperature band) counts plain running time.
+    const timeBasisMs =
+      duration?.kind === "inBand" ? advanced.accumulatedInBandMs : elapsedRunningMs(advanced, t);
     const { alarmState, newlyFired, sounding } = evaluateAlarms({
       stepAlarmDefs,
       hasTempInterest,
       alarmState: advanced.alarmState,
-      elapsedRunningMs: elapsedRunningMs(advanced, t),
+      timeBasisMs,
       isRunning: running,
       claimed,
       msSinceLastPacket,

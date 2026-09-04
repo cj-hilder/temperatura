@@ -295,6 +295,22 @@ Pause: temperature alarms still fire, time alarms don't. In-band accumulation pa
 
 Restart sets the accumulation to zero.
 
+#### Time alarms and the duration-reached alarm run on the same clock as the progress bar
+
+A step's time alarms and its duration-reached alarm never advance against a clock other than the
+one its own progress bar shows, so a step can never report "duration reached" while its own
+progress bar disagrees:
+
+* No duration, or a **'fixed length'** duration: running time only (excludes pauses), regardless
+  of whether the step also has a temperature band. This is what "time is never in doubt" for a
+  fixed-length duration means in practice — a temperature band on a fixed-length step drives its
+  temperature alarms and band-boundary alarms, but has no say over its timing.
+* An **'in temperature band'** duration: the same in-band accumulation the progress bar shows.
+  Time spent out of band does not count towards a time alarm's trigger point or towards the
+  duration-reached alarm, no matter how much wall-clock time has passed.
+
+Paused: neither clock advances, per Pause above.
+
 ## Editing a step/instance while it is running
 
 * If a step has a running instance, the step cannot be deleted.  

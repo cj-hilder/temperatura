@@ -107,5 +107,68 @@ console.log('\nClaim state survives a restart:');
   ok('completing the holder releases the claim', await app2.getClaimHolderId() === null);
 }
 
+console.log('\nDuration-reached alarm basis matches the progress bar\'s own metric, not a single universal clock:');
+{
+  // A "fixed length" duration is spec-pinned as always measured, never in
+  // doubt — its duration-reached alarm must keep counting plain running time
+  // even if the step also happens to carry a temperature band, exactly like
+  // its progress bar does.
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Roast', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 5000, kind: 'fixed' };
+  const tempBand = { lowC: 20, highC: 30 };
+  const stepAlarmDefs = [{ id: 'd1', kind: 'duration', name: 'Duration reached', atMs: 5000, repeat: false, intervalMs: null, theme: null }];
+
+  await app.startInstance({ id: 'inst-fixed', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
+  clock += 5000;
+  const result = await app.tick('inst-fixed', {
+    stepAlarmDefs, hasTempInterest: true, tempBand, duration,
+    tempC: 99, msSinceLastPacket: 100, readingValid: true, // way out of band throughout
+  });
+  ok('fixed-length duration-reached alarm fires on running time, unaffected by being out of band',
+    result.newlyFired.some((f) => f.id === 'd1'));
+}
+
+{
+  // An "in temperature band" duration's alarm must use the exact same
+  // accumulatedInBandMs the progress bar shows — time spent out of band
+  // doesn't count towards it, however much wall-clock time has passed.
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Ferment', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 4000, kind: 'inBand' };
+  const tempBand = { lowC: 20, highC: 30 };
+  const stepAlarmDefs = [{ id: 'd2', kind: 'duration', name: 'Duration reached', atMs: 4000, repeat: false, intervalMs: null, theme: null }];
+
+  await app.startInstance({ id: 'inst-inband', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
+
+  clock += 2000; // in band
+  let result = await app.tick('inst-inband', {
+    stepAlarmDefs, hasTempInterest: true, tempBand, duration,
+    tempC: 25, msSinceLastPacket: 100, readingValid: true,
+  });
+  ok('2s in-band: not yet reached (needs 4s in-band)', result.newlyFired.length === 0);
+
+  clock += 2000; // out of band — running time now at 4000ms, but in-band time still only 2000ms
+  result = await app.tick('inst-inband', {
+    stepAlarmDefs, hasTempInterest: true, tempBand, duration,
+    tempC: 99, msSinceLastPacket: 100, readingValid: true,
+  });
+  ok('4s running but only 2s in-band: does not fire on running time', result.newlyFired.length === 0);
+
+  clock += 2000; // back in band — in-band time now 4000ms
+  result = await app.tick('inst-inband', {
+    stepAlarmDefs, hasTempInterest: true, tempBand, duration,
+    tempC: 25, msSinceLastPacket: 100, readingValid: true,
+  });
+  ok('fires once accumulated in-band time (not running time) reaches the threshold',
+    result.newlyFired.some((f) => f.id === 'd2'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

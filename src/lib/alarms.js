@@ -51,7 +51,13 @@ export function reArmOnRestart(alarmState, stepAlarmDefs) {
  * @param {Array} p.stepAlarmDefs - the step's time + temperature alarm defs
  * @param {boolean} p.hasTempInterest - step has a temp band or >=1 temp alarm
  * @param {object} p.alarmState - previous per-alarm runtime state map
- * @param {number} p.elapsedRunningMs - running-only elapsed ms (excludes pauses)
+ * @param {number} p.timeBasisMs - the elapsed-ms metric time/duration alarms
+ *   compare their atMs threshold against. Callers (app.js's tick) choose it
+ *   per the step's duration kind, matching whatever the progress bar shows
+ *   for that instance: running-only elapsed time (excludes pauses) for no
+ *   duration or "fixed length", or the in-band accumulation for "in
+ *   temperature band" — so the duration-reached alarm and the progress bar
+ *   can never disagree about when a duration is reached.
  * @param {boolean} p.isRunning - instance.status === "running"
  * @param {boolean} p.claimed - this instance currently holds the claim
  * @param {number|null} p.msSinceLastPacket - raw connectivity fact, or null if never connected
@@ -61,7 +67,7 @@ export function reArmOnRestart(alarmState, stepAlarmDefs) {
  *   ordering — everything else in this module is a pure function of its inputs.
  *   firedAt must be on one consistent clock across all three alarm kinds
  *   (temperature/time/data-loss) so "earliest to fire" comparisons are valid
- *   across kinds, not just within one — elapsedRunningMs and msSinceLastPacket
+ *   across kinds, not just within one — timeBasisMs and msSinceLastPacket
  *   are on different scales and would silently break that ordering.
  * @returns {{alarmState: object, newlyFired: Array, sounding: Array}}
  */
@@ -69,7 +75,7 @@ export function evaluateAlarms({
   stepAlarmDefs,
   hasTempInterest,
   alarmState,
-  elapsedRunningMs,
+  timeBasisMs,
   isRunning,
   claimed,
   msSinceLastPacket,
@@ -85,8 +91,7 @@ export function evaluateAlarms({
     if (def.kind === "temperature") {
       next[def.id] = evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired);
     } else if (isRunning) {
-      // Time/duration alarms only advance against running elapsed time.
-      next[def.id] = evaluateTimeAlarm(def, prev, elapsedRunningMs, now, newlyFired);
+      next[def.id] = evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired);
     }
   }
 
@@ -138,14 +143,14 @@ function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
   return { armed, sounding, firedAt, lastAboveThreshold: isAbove };
 }
 
-function evaluateTimeAlarm(def, prev, elapsedRunningMs, now, newlyFired) {
+function evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired) {
   let { firedCount, sounding } = prev;
   if (sounding) return prev; // already sounding — no new fire until silenced
 
   const nextThresholdMs = def.atMs + firedCount * (def.repeat ? def.intervalMs : 0);
   const canFireAgain = def.repeat || firedCount === 0;
 
-  if (canFireAgain && elapsedRunningMs >= nextThresholdMs) {
+  if (canFireAgain && timeBasisMs >= nextThresholdMs) {
     newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
     return { firedCount: firedCount + 1, sounding: true, firedAt: now };
   }

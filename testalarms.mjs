@@ -18,7 +18,7 @@ function baseArgs(overrides = {}) {
     stepAlarmDefs: [],
     hasTempInterest: false,
     alarmState: {},
-    elapsedRunningMs: 0,
+    timeBasisMs: 0,
     isRunning: true,
     claimed: true,
     msSinceLastPacket: 0,
@@ -162,18 +162,18 @@ console.log('\nRepeating time alarm fires again after the next interval, across 
 {
   const def = { id: 'rep1', kind: 'time', name: 'Stir', atMs: 5000, repeat: true, intervalMs: 3000, theme: null };
   let state = initAlarmState([def]);
-  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 5000, now: 5000 }));
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 5000, now: 5000 }));
   state = r.alarmState;
   ok('fires at the first threshold', r.newlyFired.some(f => f.id === 'rep1'));
 
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 6000, now: 6000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 6000, now: 6000 }));
   ok('does not re-fire while still sounding, even past another instant', r.newlyFired.length === 0);
 
   ({ alarmState: state } = silenceEarliest(state));
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 7000, now: 7000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 7000, now: 7000 }));
   ok('silenced but before next interval — does not re-fire yet', r.newlyFired.length === 0);
 
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: r.alarmState, elapsedRunningMs: 8000, now: 8000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: r.alarmState, timeBasisMs: 8000, now: 8000 }));
   ok('fires again once the repeat interval elapses', r.newlyFired.some(f => f.id === 'rep1'));
 }
 
@@ -181,15 +181,15 @@ console.log('\nOne-shot time alarm never fires twice, even across a silence and 
 {
   const def = { id: 'once1', kind: 'time', name: 'Check', atMs: 2000, repeat: false, intervalMs: null, theme: null };
   let state = initAlarmState([def]);
-  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 2000, now: 2000 }));
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 2000, now: 2000 }));
   state = r.alarmState;
   ok('one-shot fires once', r.newlyFired.some(f => f.id === 'once1'));
   ({ alarmState: state } = silenceEarliest(state));
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 50000, now: 50000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 50000, now: 50000 }));
   ok('one-shot never fires again after being silenced', r.newlyFired.length === 0);
 
   state = reArmOnRestart(state, [def]);
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, elapsedRunningMs: 2000, now: 60000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 2000, now: 60000 }));
   ok('Restart re-arms the one-shot time alarm', r.newlyFired.some(f => f.id === 'once1'));
 }
 
@@ -198,10 +198,10 @@ console.log('\nPause: time alarms do not advance, temperature alarms still do:')
   const timeDef = { id: 'time1', kind: 'time', name: 'T', atMs: 1000, repeat: false, intervalMs: null, theme: null };
   const tempDef = { id: 'temp1', kind: 'temperature', name: 'Temp', thresholdC: 30, direction: 'heating', theme: null };
   let state = initAlarmState([timeDef, tempDef]);
-  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [timeDef, tempDef], alarmState: state, isRunning: true, tempC: 20, elapsedRunningMs: 0, now: 0 }));
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [timeDef, tempDef], alarmState: state, isRunning: true, tempC: 20, timeBasisMs: 0, now: 0 }));
   state = r.alarmState;
-  // Paused: isRunning=false, elapsedRunningMs frozen, but a temp reading still arrives.
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [timeDef, tempDef], alarmState: state, isRunning: false, tempC: 35, elapsedRunningMs: 0, now: 1000 }));
+  // Paused: isRunning=false, timeBasisMs frozen, but a temp reading still arrives.
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [timeDef, tempDef], alarmState: state, isRunning: false, tempC: 35, timeBasisMs: 0, now: 1000 }));
   ok('time alarm does not fire while paused even past its threshold instant', !r.newlyFired.some(f => f.id === 'time1'));
   ok('temperature alarm still fires while paused', r.newlyFired.some(f => f.id === 'temp1'));
 }
@@ -213,11 +213,11 @@ console.log('\nThree simultaneous alarms are silenced earliest-first by three pr
   const c = { id: 'c', kind: 'time', name: 'C', atMs: 1000, repeat: false, intervalMs: null, theme: null };
   let state = initAlarmState([a, b, c]);
   // Fire them one at a time, at three distinct `now` values, to establish a fire order.
-  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: state, elapsedRunningMs: 1000, now: 100 }));
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: state, timeBasisMs: 1000, now: 100 }));
   state = r.alarmState;
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: state, elapsedRunningMs: 1000, now: 200 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: state, timeBasisMs: 1000, now: 200 }));
   state = r.alarmState;
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [c], alarmState: state, elapsedRunningMs: 1000, now: 300 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [c], alarmState: state, timeBasisMs: 1000, now: 300 }));
   state = r.alarmState;
 
   ok('all three sounding, ordered earliest-first', JSON.stringify(r.sounding) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(r.sounding));
@@ -238,9 +238,9 @@ console.log('\nsilenceById silences a specific alarm regardless of fire order (n
   const a = { id: 'a', kind: 'time', name: 'A', atMs: 1000, repeat: false, intervalMs: null, theme: null };
   const b = { id: 'b', kind: 'time', name: 'B', atMs: 1000, repeat: false, intervalMs: null, theme: null };
   let state = initAlarmState([a, b]);
-  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: state, elapsedRunningMs: 1000, now: 100 }));
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: state, timeBasisMs: 1000, now: 100 }));
   state = r.alarmState;
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: state, elapsedRunningMs: 1000, now: 200 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: state, timeBasisMs: 1000, now: 200 }));
   state = r.alarmState;
   ok('both sounding, a fired first', JSON.stringify(r.sounding) === JSON.stringify(['a', 'b']));
 
@@ -264,9 +264,9 @@ console.log('\nearliestSoundingAcrossInstances — the thermometer button is sha
 
   // Instance "loaf1" fires 'a' at now=200; instance "loaf2" fires 'b' at now=100 (earlier).
   let stateLoaf1 = initAlarmState([a]);
-  stateLoaf1 = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: stateLoaf1, elapsedRunningMs: 1000, now: 200 })).alarmState;
+  stateLoaf1 = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: stateLoaf1, timeBasisMs: 1000, now: 200 })).alarmState;
   let stateLoaf2 = initAlarmState([b]);
-  stateLoaf2 = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: stateLoaf2, elapsedRunningMs: 1000, now: 100 })).alarmState;
+  stateLoaf2 = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: stateLoaf2, timeBasisMs: 1000, now: 100 })).alarmState;
 
   const result = earliestSoundingAcrossInstances([
     { instanceId: 'loaf1', alarmState: stateLoaf1 },
