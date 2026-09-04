@@ -14,6 +14,18 @@ export function isSoundTooLong(durationSeconds, maxSeconds = MAX_SOUND_SECONDS) 
   return durationSeconds > maxSeconds;
 }
 
+// Pulls the two playback-affecting fields out of a theme record, with
+// fallbacks matching the bundled default theme's own seeded values — for a
+// theme that's missing (deleted out from under an alarm still referencing
+// its id) or partially-shaped, rather than passing `undefined` into
+// playAlarm/the vibrate call.
+export function resolvePlaybackParams(theme) {
+  return {
+    rampSeconds: theme?.rampSeconds ?? 2,
+    vibrate: theme?.vibrate ?? true,
+  };
+}
+
 /**
  * Decodes a picked/stored sound. Resolves to null on any failure rather than
  * throwing — "an alarm must never fail silently," so callers check a value

@@ -5,7 +5,7 @@ import { FolderIcon, SearchIcon } from "./icons.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function HomePage({ engine, navigate }) {
+export default function HomePage({ engine, navigate, onOpenMenu }) {
   const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer, closeRecipe } = engine;
   const [picker, setPicker] = useState(null); // null | "open" | "search"
   const [allRecipes, setAllRecipes] = useState([]);
@@ -49,7 +49,7 @@ export default function HomePage({ engine, navigate }) {
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu (settings — coming soon)">☰</button>
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Open a recipe" onClick={() => setPicker("open")}><FolderIcon /></button>
         <button style={t.iconButton} title="New recipe" onClick={handleNew}>＋</button>
         <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}><SearchIcon /></button>

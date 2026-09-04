@@ -6,7 +6,7 @@ import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function StepPage({ engine, recipeId, stepId, navigate }) {
+export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu }) {
   const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, completeInstance } = engine;
   const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
@@ -119,7 +119,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate }) {
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu (settings — coming soon)">☰</button>
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
         <button style={t.iconButton} title="Back" onClick={() => navigate({ view: "recipe", recipeId })}>←</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>

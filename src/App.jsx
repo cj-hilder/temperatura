@@ -6,6 +6,8 @@ import { backDismissRef, useBackDismiss } from "./useBackDismiss.js";
 import HomePage from "./HomePage.jsx";
 import RecipePage from "./RecipePage.jsx";
 import StepPage from "./StepPage.jsx";
+import HamburgerMenu from "./HamburgerMenu.jsx";
+import SettingsPage from "./SettingsPage.jsx";
 import * as t from "./theme.js";
 
 export default function App() {
@@ -51,6 +53,16 @@ export default function App() {
   // §7 decision 3 groups this with "close an open panel/editor").
   const [quitAsk, setQuitAsk] = useState(false);
   useBackDismiss(quitAsk, () => setQuitAsk(false));
+
+  // The hamburger menu and Settings are mutually exclusive (opening one
+  // always closes the other), so they never fight over the single
+  // back-dismiss slot. Back on Settings goes to the menu, not straight
+  // through to whatever page is underneath — the same "close the topmost
+  // thing first" rule as everything else back dismisses.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useBackDismiss(menuOpen, () => setMenuOpen(false));
+  useBackDismiss(settingsOpen, () => { setSettingsOpen(false); setMenuOpen(true); });
 
   const backStateRef = useRef({});
   backStateRef.current = { anySounding, dismissable: !!backDismissRef.current, screen };
@@ -116,18 +128,27 @@ export default function App() {
     );
   }
 
+  const onOpenMenu = () => setMenuOpen(true);
   const activeScreen =
     screen.view === "recipe" ? (
-      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} />
+      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} onOpenMenu={onOpenMenu} />
     ) : screen.view === "step" ? (
-      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} />
+      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} onOpenMenu={onOpenMenu} />
     ) : (
-      <HomePage engine={engine} navigate={setScreen} />
+      <HomePage engine={engine} navigate={setScreen} onOpenMenu={onOpenMenu} />
     );
 
   return (
     <>
       {activeScreen}
+
+      {menuOpen && (
+        <HamburgerMenu
+          onClose={() => setMenuOpen(false)}
+          onOpenSettings={() => { setMenuOpen(false); setSettingsOpen(true); }}
+        />
+      )}
+      {settingsOpen && <SettingsPage engine={engine} onClose={() => setSettingsOpen(false)} />}
 
       {quitAsk && (
         <div

@@ -1,4 +1,4 @@
-import { isSoundTooLong, MAX_SOUND_SECONDS } from './src/lib/alarmPlayer.js';
+import { isSoundTooLong, MAX_SOUND_SECONDS, resolvePlaybackParams } from './src/lib/alarmPlayer.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -11,6 +11,19 @@ console.log('\nisSoundTooLong — the pure half of "5 second maximum, rejected a
   ok('a much longer sound is rejected', isSoundTooLong(60) === true);
   ok('a custom max is honoured', isSoundTooLong(3, 2) === true);
   ok('MAX_SOUND_SECONDS matches the spec value', MAX_SOUND_SECONDS === 5);
+}
+
+console.log('\nresolvePlaybackParams — a theme\'s playback fields, with the default theme\'s own fallbacks:');
+{
+  const r = resolvePlaybackParams({ rampSeconds: 4, vibrate: false });
+  ok('a real theme\'s fields pass through', r.rampSeconds === 4 && r.vibrate === false);
+
+  const missing = resolvePlaybackParams(null);
+  ok('a missing theme (deleted out from under an alarm) falls back to rampSeconds 2', missing.rampSeconds === 2);
+  ok('a missing theme falls back to vibrate true', missing.vibrate === true);
+
+  const partial = resolvePlaybackParams({ rampSeconds: 3 });
+  ok('a theme missing vibrate falls back just for that field', partial.rampSeconds === 3 && partial.vibrate === true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

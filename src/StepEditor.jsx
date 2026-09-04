@@ -1,7 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as t from "./theme.js";
 
 const MIN_MS = 60_000;
+
+// A theme picker for one alarm. Non-default themes only — the synthetic
+// "Default" option already represents the seeded default theme record, so
+// listing it too would show two functionally-identical entries (see
+// ensureDefaultTheme in storage.js).
+function ThemeSelect({ themes, value, onChange }) {
+  return (
+    <select style={t.input} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">Default</option>
+      {themes.filter((th) => !th.isDefault).map((th) => (
+        <option key={th.id} value={th.id}>{th.name}</option>
+      ))}
+    </select>
+  );
+}
 
 export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) {
   const { app, openRecipes } = engine;
@@ -15,11 +30,18 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
   const [tempBandOn, setTempBandOn] = useState(!!step.tempBand);
   const [lowC, setLowC] = useState(step.tempBand?.lowC ?? 20);
   const [highC, setHighC] = useState(step.tempBand?.highC ?? 30);
+  const [bandMinTheme, setBandMinTheme] = useState(step.bandMinAlarm?.theme ?? null);
+  const [bandMaxTheme, setBandMaxTheme] = useState(step.bandMaxAlarm?.theme ?? null);
   const [durationReachedOn, setDurationReachedOn] = useState(!!step.durationReachedAlarm?.enabled);
+  const [durationReachedTheme, setDurationReachedTheme] = useState(step.durationReachedAlarm?.theme ?? null);
   const [timeAlarms, setTimeAlarms] = useState(step.timeAlarms);
   const [tempAlarms, setTempAlarms] = useState(step.tempAlarms);
   const [error, setError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [themes, setThemes] = useState([]);
+  useEffect(() => {
+    app.store.listAlarmThemes().then(setThemes);
+  }, [app]);
 
   const addTimeAlarm = () =>
     setTimeAlarms([...timeAlarms, { id: crypto.randomUUID(), name: "", atMs: 5 * MIN_MS, repeat: false, intervalMs: null, theme: null }]);
@@ -41,7 +63,9 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
       description,
       duration,
       tempBand,
-      durationReachedAlarm: duration ? { enabled: durationReachedOn, theme: null } : null,
+      durationReachedAlarm: duration ? { enabled: durationReachedOn, theme: durationReachedTheme } : null,
+      bandMinAlarm: { theme: bandMinTheme },
+      bandMaxAlarm: { theme: bandMaxTheme },
       timeAlarms,
       tempAlarms,
     };
@@ -101,19 +125,27 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
           </div>
         )}
         {tempBandOn && (
-          <p style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
-            A band always carries two automatic alarms — cooling below {lowC}°C, heating above {highC}°C.
-            Alarm theme picker is coming with Settings.
-          </p>
+          <div style={{ ...t.card, margin: "8px 0" }}>
+            <p style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 0 }}>
+              A band always carries two automatic alarms — cooling below {lowC}°C, heating above {highC}°C.
+            </p>
+            <label style={t.label}>Below-band alarm theme</label>
+            <ThemeSelect themes={themes} value={bandMinTheme} onChange={setBandMinTheme} />
+            <label style={t.label}>Above-band alarm theme</label>
+            <ThemeSelect themes={themes} value={bandMaxTheme} onChange={setBandMaxTheme} />
+          </div>
         )}
         {durationKind === "inBand" && !tempBandOn && (
           <p style={t.errorText}>An "in temperature band" duration needs a temperature band.</p>
         )}
 
         {durationKind !== "none" && (
-          <label style={{ ...t.label, display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={durationReachedOn} onChange={(e) => setDurationReachedOn(e.target.checked)} /> Duration-reached alarm
-          </label>
+          <>
+            <label style={{ ...t.label, display: "flex", alignItems: "center", gap: 6 }}>
+              <input type="checkbox" checked={durationReachedOn} onChange={(e) => setDurationReachedOn(e.target.checked)} /> Duration-reached alarm
+            </label>
+            {durationReachedOn && <ThemeSelect themes={themes} value={durationReachedTheme} onChange={setDurationReachedTheme} />}
+          </>
         )}
 
         <label style={t.label}>Time alarms</label>
@@ -146,6 +178,8 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
                 <span>min interval</span>
               </div>
             )}
+            <label style={{ ...t.label, marginTop: 6 }}>Alarm theme</label>
+            <ThemeSelect themes={themes} value={a.theme} onChange={(theme) => updateTimeAlarm(i, { theme })} />
             <button style={{ ...t.smallButton, marginTop: 8 }} onClick={() => removeTimeAlarm(i)}>Remove</button>
           </div>
         ))}
@@ -163,6 +197,8 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
                 <option value="cooling">Cooling</option>
               </select>
             </div>
+            <label style={{ ...t.label, marginTop: 6 }}>Alarm theme</label>
+            <ThemeSelect themes={themes} value={a.theme} onChange={(theme) => updateTempAlarm(i, { theme })} />
             <button style={{ ...t.smallButton, marginTop: 8 }} onClick={() => removeTempAlarm(i)}>Remove</button>
           </div>
         ))}

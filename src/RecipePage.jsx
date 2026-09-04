@@ -4,7 +4,7 @@ import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function RecipePage({ engine, recipeId, initialEditing, navigate }) {
+export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu }) {
   const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
   const closeEditor = async () => {
@@ -66,7 +66,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate 
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu (settings — coming soon)">☰</button>
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
         <div style={t.spacer} />

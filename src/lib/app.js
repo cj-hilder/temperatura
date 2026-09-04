@@ -2,7 +2,7 @@
 // ... }) shape: injected backend/clock/thermometer, builds a Store
 // internally, returns a flat method-per-operation object plus the raw store
 // handle. No pub/sub — callers get results back from calls, same as RTW.
-import { IndexedDBBackend, MemoryBackend, Store } from "./storage.js";
+import { IndexedDBBackend, MemoryBackend, Store, DEFAULT_THEME_ID } from "./storage.js";
 import { validateRecipe } from "./recipe.js";
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
@@ -13,6 +13,7 @@ import {
 import { evaluateAlarms, silenceEarliest, silenceById } from "./alarms.js";
 
 const CLAIM_SETTING_KEY = "claimHolderId";
+const DATA_LOSS_THEME_SETTING_KEY = "dataLossAlarmTheme";
 
 /**
  * @param {object} [deps]
@@ -50,6 +51,15 @@ export function createAppController(deps = {}) {
     await store.setSetting(CLAIM_SETTING_KEY, next);
     return next;
   }
+
+  // ---- Alarm themes ----
+
+  const ensureDefaultTheme = () => store.ensureDefaultTheme();
+  // The lost-BLE-connection alarm's theme is a single global setting, not a
+  // per-alarm field — it isn't attached to any step, so there's nowhere else
+  // for the user to choose it but here.
+  const getDataLossAlarmTheme = () => store.getSetting(DATA_LOSS_THEME_SETTING_KEY, DEFAULT_THEME_ID);
+  const setDataLossAlarmTheme = (themeId) => store.setSetting(DATA_LOSS_THEME_SETTING_KEY, themeId);
 
   // ---- Instance lifecycle ----
 
@@ -186,6 +196,7 @@ export function createAppController(deps = {}) {
     createRecipe, getRecipe, listRecipes, updateRecipe, deleteRecipe,
     openRecipe, listOpenRecipeIds, closeRecipe,
     getClaimHolderId, toggleClaim,
+    ensureDefaultTheme, getDataLossAlarmTheme, setDataLossAlarmTheme,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

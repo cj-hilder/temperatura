@@ -5,6 +5,8 @@ import {
   silenceEarliest,
   silenceById,
   earliestSoundingAcrossInstances,
+  themeIdForFiredAlarm,
+  themeIdForAlarmId,
   DATA_LOSS_ALARM_ID,
   DATA_LOSS_TIMEOUT_MS,
 } from './src/lib/alarms.js';
@@ -282,6 +284,33 @@ console.log('\nearliestSoundingAcrossInstances — the thermometer button is sha
 
   const empty = earliestSoundingAcrossInstances([]);
   ok('null with no instances at all', empty === null);
+}
+
+console.log('\nthemeIdForFiredAlarm / themeIdForAlarmId — which alarm theme applies:');
+{
+  const ids = { dataLossThemeId: 'siren-theme', defaultThemeId: 'default' };
+
+  ok('a data-loss fired alarm uses the settings-key theme, not the default',
+    themeIdForFiredAlarm({ kind: 'dataLoss', theme: null }, ids) === 'siren-theme');
+  ok('a normal fired alarm with an explicit theme uses it',
+    themeIdForFiredAlarm({ kind: 'temperature', theme: 'bell-theme' }, ids) === 'bell-theme');
+  ok('a normal fired alarm with no theme falls back to the default',
+    themeIdForFiredAlarm({ kind: 'time', theme: null }, ids) === 'default');
+  ok('no dataLossThemeId configured falls back to the default even for data-loss',
+    themeIdForFiredAlarm({ kind: 'dataLoss', theme: null }, { defaultThemeId: 'default' }) === 'default');
+
+  const stepAlarmDefs = [
+    { id: 'temp1', theme: 'bell-theme' },
+    { id: 'time1', theme: null },
+  ];
+  ok('themeIdForAlarmId resolves the data-loss id via the settings-key theme',
+    themeIdForAlarmId(DATA_LOSS_ALARM_ID, stepAlarmDefs, ids) === 'siren-theme');
+  ok('themeIdForAlarmId looks up a normal id\'s own theme from stepAlarmDefs',
+    themeIdForAlarmId('temp1', stepAlarmDefs, ids) === 'bell-theme');
+  ok('themeIdForAlarmId falls back to default when the def\'s theme is null',
+    themeIdForAlarmId('time1', stepAlarmDefs, ids) === 'default');
+  ok('themeIdForAlarmId falls back to default for an id with no matching def',
+    themeIdForAlarmId('unknown', stepAlarmDefs, ids) === 'default');
 }
 
 console.log('\nEditing a running step to add a new alarm must not crash or freeze the rest of the tick:');

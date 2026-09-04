@@ -1,4 +1,4 @@
-import { Store, MemoryBackend, STORES } from './src/lib/storage.js';
+import { Store, MemoryBackend, STORES, DEFAULT_THEME_ID } from './src/lib/storage.js';
 import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
@@ -101,7 +101,7 @@ console.log('\nDeleting a recipe cascades to its instances and the open set:');
 console.log('\nAlarm themes and sounds:');
 {
   const store = mkStore();
-  const theme = await store.createAlarmTheme({ name: 'Default', ramp: 0, vibrate: true, isDefault: true });
+  const theme = await store.createAlarmTheme({ name: 'Default', rampSeconds: 0, vibrate: true, isDefault: true });
   ok('createAlarmTheme assigns an id', typeof theme.id === 'string');
 
   const buf = new Uint8Array([1, 2, 3, 4]).buffer;
@@ -113,9 +113,22 @@ console.log('\nAlarm themes and sounds:');
   try { await store.deleteAlarmTheme(theme.id); } catch { threw = true; }
   ok('the default theme cannot be deleted', threw);
 
-  const custom = await store.createAlarmTheme({ name: 'Bell', ramp: 2, vibrate: false });
+  const custom = await store.createAlarmTheme({ name: 'Bell', rampSeconds: 2, vibrate: false });
   await store.deleteAlarmTheme(custom.id);
   ok('a non-default theme can be deleted', (await store.getAlarmTheme(custom.id)) === undefined);
+}
+
+console.log('\nensureDefaultTheme — seeds the bundled synthesized theme exactly once:');
+{
+  const store = mkStore();
+  const seeded = await store.ensureDefaultTheme();
+  ok('seeds the well-known id', seeded.id === DEFAULT_THEME_ID);
+  ok('seeds the fields that match engine.js\'s prior hardcoded playback', seeded.rampSeconds === 2 && seeded.vibrate === true);
+  ok('seeds it as the default theme', seeded.isDefault === true);
+
+  await store.updateAlarmTheme(DEFAULT_THEME_ID, { rampSeconds: 5 });
+  const again = await store.ensureDefaultTheme();
+  ok('a second call is idempotent — does not overwrite an edited default', again.rampSeconds === 5);
 }
 
 console.log('\nSettings:');
@@ -132,7 +145,7 @@ console.log('\nBackup / restore (all data), including the sounds ArrayBuffer<->b
   const recipe = await store.createRecipe({ ...createBlankRecipe(), name: 'Backed Up' });
   await store.openRecipe(recipe.id);
   await store.createInstance({ id: 'bk-1', recipeId: recipe.id, stepId: 's1', status: 'running' });
-  const theme = await store.createAlarmTheme({ name: 'Chime', ramp: 1, vibrate: true });
+  const theme = await store.createAlarmTheme({ name: 'Chime', rampSeconds: 1, vibrate: true });
   await store.saveSound(theme.id, new Uint8Array([9, 8, 7]).buffer);
 
   const bundle = store.exportAll ? await store.exportAll() : null;

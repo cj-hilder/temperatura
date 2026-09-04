@@ -242,3 +242,28 @@ export function earliestSoundingAcrossInstances(instances) {
   }
   return best ? { instanceId: best.instanceId, alarmId: best.alarmId } : null;
 }
+
+/* ==========================================================================
+ * Which alarm theme applies?
+ * ========================================================================== */
+
+// Params are passed in rather than imported (storage.js's DEFAULT_THEME_ID,
+// app.js's data-loss theme setting) so this module keeps its zero-imports
+// shape — it stays a pure function of its own inputs either way.
+//
+// The data-loss alarm isn't a step-defined alarm (it's synthesized in
+// evaluateDataLossAlarm, always with `theme: null` on its newlyFired entry —
+// see there), so it alone needs the separate global setting instead of a
+// per-alarm theme field.
+export function themeIdForFiredAlarm(fired, { dataLossThemeId, defaultThemeId }) {
+  if (fired.kind === "dataLoss") return dataLossThemeId || defaultThemeId;
+  return fired.theme || defaultThemeId;
+}
+
+// Same decision, but for an alarm id with no `newlyFired` entry in hand
+// (e.g. resolving vibrate for every currently-sounding alarm each tick,
+// not just the ones that just fired) — looks the def back up by id instead.
+export function themeIdForAlarmId(alarmId, stepAlarmDefs, { dataLossThemeId, defaultThemeId }) {
+  if (alarmId === DATA_LOSS_ALARM_ID) return dataLossThemeId || defaultThemeId;
+  return stepAlarmDefs.find((d) => d.id === alarmId)?.theme || defaultThemeId;
+}

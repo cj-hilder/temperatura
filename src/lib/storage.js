@@ -15,6 +15,11 @@ export const STORES = {
 export const DB_NAME = "temperatura";
 export const DB_VERSION = 1;
 
+// The bundled synthesized-tone theme's well-known id — a fixed constant
+// rather than a generated uuid, mirroring DATA_LOSS_ALARM_ID in alarms.js, so
+// callers can reference "the default theme" without a lookup.
+export const DEFAULT_THEME_ID = "default";
+
 // Backend interface
 //   get(store, key) -> value|undefined
 //   getAll(store) -> value[]
@@ -228,6 +233,23 @@ export class Store {
     if (theme?.isDefault) throw new Error("The default alarm theme cannot be deleted.");
     await this.b.delete(STORES.SOUNDS, id);
     await this.b.delete(STORES.ALARM_THEMES, id);
+  }
+
+  // A fresh install has no themes at all — the bundled synthesized tone is
+  // the only theme that must always exist, since it's the fallback for every
+  // alarm with no explicit theme, for a decode failure, and for the lost-BLE
+  // alarm before the user picks one. Idempotent so callers can call it
+  // unconditionally on every launch rather than tracking "have I seeded yet."
+  async ensureDefaultTheme() {
+    const existing = await this.getAlarmTheme(DEFAULT_THEME_ID);
+    if (existing) return existing;
+    return this.createAlarmTheme({
+      id: DEFAULT_THEME_ID,
+      name: "Default",
+      rampSeconds: 2,
+      vibrate: true,
+      isDefault: true,
+    });
   }
 
   // ---- Sounds (decoded audio, keyed by theme id) -------------------------

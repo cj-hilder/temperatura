@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createAppController } from "./lib/app.js";
-import { IndexedDBBackend } from "./lib/storage.js";
+import { IndexedDBBackend, DEFAULT_THEME_ID } from "./lib/storage.js";
 import { useKeepAlive } from "./lib/useKeepAlive.js";
 import { createWebBluetoothBackend, resetPressBaseline, applyPressBaseline } from "./lib/thermometer.js";
-import { playAlarm, stopAlarm } from "./lib/alarmPlayer.js";
+import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
-import { earliestSoundingAcrossInstances } from "./lib/alarms.js";
+import { earliestSoundingAcrossInstances, themeIdForFiredAlarm, themeIdForAlarmId } from "./lib/alarms.js";
 import { alarmName } from "./stepDisplay.js";
 
 // Promotes AlarmDemo.jsx's wiring (keep-alive, thermometer, tick loop,
@@ -90,6 +90,13 @@ export function useAppEngine() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // A fresh install has no themes; seed the bundled default once so it's
+  // always resolvable as a fallback, whether or not the user ever opens
+  // Settings.
+  useEffect(() => {
+    app.ensureDefaultTheme();
+  }, [app]);
 
   // ---- keep-alive + notification permission (same user gesture, per spec) ----
   const startKeepAlive = useCallback(async () => {
@@ -267,6 +274,13 @@ export function useAppEngine() {
         const readingValid = !!(sample && sample.probePresent && sample.tempC != null);
         const tempC = sample?.tempC ?? null;
 
+        // Read once per cycle, not once per alarm — every instance/alarm this
+        // tick shares the same theme map and data-loss theme id, so this is
+        // one read pair regardless of how many are running.
+        const themesById = new Map((await app.store.listAlarmThemes()).map((t) => [t.id, t]));
+        const dataLossThemeId = await app.getDataLossAlarmTheme();
+        const themeIds = { dataLossThemeId, defaultThemeId: DEFAULT_THEME_ID };
+
         const allSounding = [];
         for (const instance of active) {
           // Isolated per instance too: one bad instance must not stop the
@@ -292,7 +306,17 @@ export function useAppEngine() {
             for (const fired of result.newlyFired) {
               const tag = compositeTag(instance.id, fired.id);
               const ctx = keepAliveRef.current.audioRef.current?.ctx;
-              if (ctx) playAlarm(ctx, tag, { buffer: null, rampSeconds: 2 });
+              if (ctx) {
+                const theme = themesById.get(themeIdForFiredAlarm(fired, themeIds));
+                const soundBuf = theme ? await app.store.getSound(theme.id) : null;
+                // Decoding only happens here, on an actual fire — rare
+                // compared to the once-a-second tick — so this is not a
+                // per-tick cost.
+                const buffer = soundBuf ? await decodeSound(ctx, soundBuf) : null;
+                if (soundBuf && !buffer) console.error(`theme "${theme.id}" sound failed to decode — falling back to the built-in tone`);
+                const { rampSeconds } = resolvePlaybackParams(theme);
+                playAlarm(ctx, tag, { buffer, rampSeconds });
+              }
               soundingTagsRef.current.add(tag);
             }
             for (const tag of [...soundingTagsRef.current]) {
@@ -302,11 +326,13 @@ export function useAppEngine() {
               }
             }
             for (const alarmId of result.sounding) {
+              const theme = themesById.get(themeIdForAlarmId(alarmId, stepAlarmDefs, themeIds));
+              const { vibrate } = resolvePlaybackParams(theme);
               allSounding.push({
                 id: compositeTag(instance.id, alarmId),
                 title: recipe.name,
                 body: alarmName(step, alarmId),
-                vibrate: VIBRATE_PATTERN,
+                vibrate: vibrate ? VIBRATE_PATTERN : [],
               });
             }
           } catch (err) {
@@ -341,5 +367,8 @@ export function useAppEngine() {
     silenceEarliestGlobal,
     completeInstance,
     closeRecipe,
+    // For SettingsPage's pick-time decode/duration check — must reuse this
+    // exact context, not a fresh one, per useKeepAlive.js's own rationale.
+    getAudioContext: () => keepAliveRef.current.audioRef.current?.ctx,
   };
 }
