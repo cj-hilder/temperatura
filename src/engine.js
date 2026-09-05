@@ -6,7 +6,7 @@ import { createWebBluetoothBackend, resetPressBaseline, applyPressBaseline } fro
 import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
-import { earliestSoundingAcrossInstances, themeIdForAlarmId } from "./lib/alarms.js";
+import { earliestOutstandingAcrossInstances, themeIdForAlarmId, DATA_LOSS_ALARM_ID } from "./lib/alarms.js";
 import { alarmName } from "./stepDisplay.js";
 
 // Promotes AlarmDemo.jsx's wiring (keep-alive, thermometer, tick loop,
@@ -24,9 +24,10 @@ import { alarmName } from "./stepDisplay.js";
 //
 //  2. Earliest-first across instances. The thermometer button is one shared
 //     physical input, not scoped to whichever instance is on screen —
-//     silencing needs to compare fire order across every running instance's
-//     alarm state, which is exactly what earliestSoundingAcrossInstances is
-//     for (alarms.js's own silenceEarliest only looks within one instance).
+//     resolving it needs to compare fire order across every running
+//     instance's alarm state, which is exactly what
+//     earliestOutstandingAcrossInstances is for (alarms.js's own
+//     silenceEarliest/dismissById only look within one instance).
 const VIBRATE_PATTERN = [300, 100, 300];
 const TICK_INTERVAL_MS = 1000;
 
@@ -57,6 +58,7 @@ export function useAppEngine() {
   const pressStateRef = useRef(resetPressBaseline());
   const routerRef = useRef(null);
   const soundingTagsRef = useRef(new Set()); // composite tags with an active alarmPlayer voice
+  const missedNotifiedRef = useRef(new Set()); // composite tags already sent a one-time "now missed" notification
   const recipesRef = useRef({}); // recipeId -> recipe, for the tick loop's step lookups
   const latestSampleRef = useRef(null);
   const lastPacketAtRef = useRef(null);
@@ -123,6 +125,7 @@ export function useAppEngine() {
           body: alarm.body,
           vibrate: alarm.vibrate,
           canExtend: alarm.canExtend,
+          missed: !!alarm.missed,
         });
       },
     });
@@ -134,6 +137,19 @@ export function useAppEngine() {
     const tag = compositeTag(instanceId, alarmId);
     stopAlarm(tag);
     soundingTagsRef.current.delete(tag);
+  }
+
+  // Tells the SW to close a notification it may have already posted for this
+  // tag — e.g. an alarm answered in-app after the tab was backgrounded long
+  // enough to post one. This message type existed and was already handled in
+  // sw.js, but nothing ever sent it; wiring it up here fixes that alongside
+  // Dismiss, which needs the identical "close it" behavior. A harmless no-op
+  // if no notification is showing for this tag, or no SW controls this page.
+  function ackToSW(instanceId, alarmId) {
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "ALARM_SILENCE_ACK",
+      tag: compositeTag(instanceId, alarmId),
+    });
   }
 
   // Starts the voice for one sounding alarm if it isn't already playing —
@@ -182,6 +198,7 @@ export function useAppEngine() {
     async (instanceId, alarmId) => {
       await app.silenceAlarm(instanceId, alarmId);
       stopAndForget(instanceId, alarmId);
+      ackToSW(instanceId, alarmId);
       await refresh();
     },
     [app, refresh]
@@ -193,6 +210,8 @@ export function useAppEngine() {
   const dismissAlarm = useCallback(
     async (instanceId, alarmId) => {
       await app.dismissAlarm(instanceId, alarmId);
+      missedNotifiedRef.current.delete(compositeTag(instanceId, alarmId));
+      ackToSW(instanceId, alarmId);
       await refresh();
     },
     [app, refresh]
@@ -217,10 +236,12 @@ export function useAppEngine() {
       const wasMissed = !!instance.alarmState[alarmId]?.missed;
       if (wasMissed) {
         await app.dismissAlarm(instanceId, alarmId);
+        missedNotifiedRef.current.delete(compositeTag(instanceId, alarmId));
       } else {
         await app.silenceAlarm(instanceId, alarmId);
       }
       stopAndForget(instanceId, alarmId);
+      ackToSW(instanceId, alarmId);
       await refresh();
       setPendingExtend({ instanceId, wasMissed });
     },
@@ -266,18 +287,21 @@ export function useAppEngine() {
     [app, refresh]
   );
 
-  // Thermometer button: earliest-first across every running instance.
-  const silenceEarliestGlobal = useCallback(async () => {
+  // Thermometer button (and the back button, via App.jsx's "silenceEarliest"
+  // case): earliest-first across every running instance, resolving whichever
+  // it finds — silencing a sounding alarm or dismissing a missed one. Reuses
+  // silenceAlarm/dismissAlarm above rather than calling app.* directly, so
+  // the SW-ack posting isn't duplicated a third time.
+  const resolveEarliestGlobal = useCallback(async () => {
     const allInstances = await app.store.listInstances();
     const running = allInstances.filter((i) => i.status !== "completed");
-    const target = earliestSoundingAcrossInstances(
+    const target = earliestOutstandingAcrossInstances(
       running.map((i) => ({ instanceId: i.id, alarmState: i.alarmState }))
     );
-    if (!target) return; // presses are swallowed when nothing is sounding
-    await app.silenceAlarm(target.instanceId, target.alarmId);
-    stopAndForget(target.instanceId, target.alarmId);
-    await refresh();
-  }, [app, refresh]);
+    if (!target) return; // presses are swallowed when nothing is outstanding
+    if (target.missed) await dismissAlarm(target.instanceId, target.alarmId);
+    else await silenceAlarm(target.instanceId, target.alarmId);
+  }, [dismissAlarm, silenceAlarm, app]);
 
   // ---- thermometer connect/disconnect ----
 
@@ -295,7 +319,7 @@ export function useAppEngine() {
           lastPacketAtRef.current = at;
           setLatestSample(sample);
           setLastPacketAt(at);
-          for (let i = 0; i < presses; i++) silenceEarliestGlobal();
+          for (let i = 0; i < presses; i++) resolveEarliestGlobal();
         },
         onDisconnect: () => setConnectionState("disconnected"),
         onReconnecting: (attempt, max) => setConnectionState(`reconnecting (${attempt}/${max})`),
@@ -309,14 +333,14 @@ export function useAppEngine() {
     } catch {
       setConnectionState("disconnected");
     }
-  }, [silenceEarliestGlobal]);
+  }, [resolveEarliestGlobal]);
 
   const disconnectThermometer = useCallback(() => {
     thermometerRef.current?.disconnect();
     setConnectionState("disconnected");
   }, []);
 
-  // ---- SW ALARM_SILENCED / ALARM_EXTEND_REQUESTED (notification tap) ----
+  // ---- SW ALARM_SILENCED / ALARM_DISMISSED / ALARM_EXTEND_REQUESTED (notification tap) ----
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (event) => {
@@ -325,6 +349,8 @@ export function useAppEngine() {
       const instanceId = event.data.tag.slice(0, sep);
       if (event.data.type === "ALARM_SILENCED") {
         silenceAlarm(instanceId, event.data.tag.slice(sep + 1));
+      } else if (event.data.type === "ALARM_DISMISSED") {
+        dismissAlarm(instanceId, event.data.tag.slice(sep + 1));
       } else if (event.data.type === "ALARM_EXTEND_REQUESTED") {
         // The tag's alarm half is always the duration alarm here — the SW
         // only ever offers "extend" on a duration-reached notification (see
@@ -334,7 +360,7 @@ export function useAppEngine() {
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
-  }, [silenceAlarm, requestExtend]);
+  }, [silenceAlarm, dismissAlarm, requestExtend]);
 
   // ---- the shared 1-second tick loop, over every running/paused instance ----
   useEffect(() => {
@@ -434,6 +460,30 @@ export function useAppEngine() {
                 canExtend: alarmId === durationAlarmId(step.id),
               });
             }
+
+            // Missed alarms are deliberately absent from `sounding` above (no
+            // more noise), so the nag loop above never sees them — this is
+            // the separate, one-time "it just went missed" notification,
+            // posted once per transition (tracked in missedNotifiedRef, not
+            // re-sent every tick while it sits missed) rather than on any
+            // repeating cadence.
+            for (const alarmId of [...stepAlarmDefs.map((d) => d.id), DATA_LOSS_ALARM_ID]) {
+              const tag = compositeTag(instance.id, alarmId);
+              if (result.instance.alarmState[alarmId]?.missed) {
+                if (!missedNotifiedRef.current.has(tag)) {
+                  missedNotifiedRef.current.add(tag);
+                  routerRef.current?.notifyOnce({
+                    id: tag,
+                    title: recipe.name,
+                    body: alarmName(step, alarmId),
+                    missed: true,
+                    canExtend: alarmId === durationAlarmId(step.id),
+                  });
+                }
+              } else {
+                missedNotifiedRef.current.delete(tag);
+              }
+            }
           } catch (err) {
             console.error(`tick failed for instance ${instance.id}`, err);
           }
@@ -464,7 +514,7 @@ export function useAppEngine() {
     openRecipes,
     silenceAlarm,
     dismissAlarm,
-    silenceEarliestGlobal,
+    resolveEarliestGlobal,
     completeInstance,
     closeRecipe,
     pendingExtend,

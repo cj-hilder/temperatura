@@ -328,6 +328,30 @@ export function earliestSoundingAcrossInstances(instances) {
   return best ? { instanceId: best.instanceId, alarmId: best.alarmId } : null;
 }
 
+// The generalized version of the above for the global alarm overlay, the
+// thermometer button, and the back button once missed status exists: a
+// missed alarm is exactly as outstanding as a sounding one, and "earliest"
+// spans both — resolving it means silencing if it's still sounding, or
+// dismissing if it's already missed. Kept alongside
+// earliestSoundingAcrossInstances rather than replacing it, since a caller
+// that only ever needs "what's currently sounding" (unrelated to resolving
+// it) still has that narrower function available.
+// @param {Array<{instanceId: string, alarmState: object}>} instances
+// @returns {{instanceId: string, alarmId: string, missed: boolean} | null}
+export function earliestOutstandingAcrossInstances(instances) {
+  let best = null;
+  for (const { instanceId, alarmState } of instances) {
+    for (const [alarmId, state] of Object.entries(alarmState)) {
+      if (!state.sounding && !state.missed) continue;
+      const firedAt = state.firedAt ?? 0;
+      if (best === null || firedAt < best.firedAt) {
+        best = { instanceId, alarmId, firedAt, missed: state.missed };
+      }
+    }
+  }
+  return best ? { instanceId: best.instanceId, alarmId: best.alarmId, missed: best.missed } : null;
+}
+
 /* ==========================================================================
  * Which alarm theme applies?
  * ========================================================================== */

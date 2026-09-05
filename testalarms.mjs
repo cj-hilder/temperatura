@@ -6,6 +6,7 @@ import {
   silenceById,
   dismissById,
   earliestSoundingAcrossInstances,
+  earliestOutstandingAcrossInstances,
   themeIdForFiredAlarm,
   themeIdForAlarmId,
   DATA_LOSS_ALARM_ID,
@@ -285,6 +286,47 @@ console.log('\nearliestSoundingAcrossInstances — the thermometer button is sha
 
   const empty = earliestSoundingAcrossInstances([]);
   ok('null with no instances at all', empty === null);
+}
+
+console.log('\nearliestOutstandingAcrossInstances — the generalized version, spanning sounding AND missed:');
+{
+  const a = { id: 'a', kind: 'time', name: 'A', atMs: 1000, repeat: false, intervalMs: null, theme: null, silenceAfterMs: 500 };
+  const b = { id: 'b', kind: 'time', name: 'B', atMs: 1000, repeat: false, intervalMs: null, theme: null, silenceAfterMs: 500 };
+
+  // "loaf1" fires 'a' at now=100, then it goes missed (unanswered past its
+  // 500ms silence-after). "loaf2" fires 'b' later, at now=900, and is still
+  // sounding. Despite firing LATER, and despite being missed rather than
+  // sounding, 'a' is still earliest by firedAt and must win.
+  let stateLoaf1 = initAlarmState([a]);
+  stateLoaf1 = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: stateLoaf1, timeBasisMs: 1000, now: 100 })).alarmState;
+  stateLoaf1 = evaluateAlarms(baseArgs({ stepAlarmDefs: [a], alarmState: stateLoaf1, timeBasisMs: 1000, now: 700 })).alarmState; // past silence-after — now missed
+  ok('setup: loaf1\'s alarm is missed', stateLoaf1.a.missed === true && stateLoaf1.a.sounding === false);
+
+  let stateLoaf2 = initAlarmState([b]);
+  stateLoaf2 = evaluateAlarms(baseArgs({ stepAlarmDefs: [b], alarmState: stateLoaf2, timeBasisMs: 1000, now: 900 })).alarmState;
+  ok('setup: loaf2\'s alarm is still sounding', stateLoaf2.b.sounding === true);
+
+  const result = earliestOutstandingAcrossInstances([
+    { instanceId: 'loaf1', alarmState: stateLoaf1 },
+    { instanceId: 'loaf2', alarmState: stateLoaf2 },
+  ]);
+  ok('finds the earliest-fired alarm regardless of which is sounding vs missed',
+    result.instanceId === 'loaf1' && result.alarmId === 'a', JSON.stringify(result));
+  ok('reports that resolving it means dismissing, not silencing', result.missed === true);
+
+  // Once loaf1's is dismissed, loaf2's (still sounding) is the only one left.
+  const afterDismiss = earliestOutstandingAcrossInstances([
+    { instanceId: 'loaf2', alarmState: stateLoaf2 },
+  ]);
+  ok('the remaining sounding alarm is found once the missed one is gone', afterDismiss.instanceId === 'loaf2' && afterDismiss.missed === false);
+
+  const noneOutstanding = earliestOutstandingAcrossInstances([
+    { instanceId: 'x', alarmState: initAlarmState([]) },
+    { instanceId: 'y', alarmState: initAlarmState([]) },
+  ]);
+  ok('null when nothing is sounding or missed anywhere', noneOutstanding === null);
+
+  ok('null with no instances at all', earliestOutstandingAcrossInstances([]) === null);
 }
 
 console.log('\nthemeIdForFiredAlarm / themeIdForAlarmId — which alarm theme applies:');

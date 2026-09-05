@@ -61,6 +61,17 @@ export function createNotifyRouter({ vibrate, postToSW, visibilityState }) {
     return result.due;
   }
 
+  // A one-time notification, outside the nag cadence above — for an alarm
+  // that just went missed. Missed alarms are deliberately absent from
+  // `sounding` (they no longer make noise), so `tick()`'s dueNags loop never
+  // sees them; this is the caller's own way to still tell the user, exactly
+  // once per transition, while hidden. While visible there's nothing to do —
+  // the in-app UI already shows it, matching tick()'s own visible-path
+  // silence (no notification is ever posted while visible).
+  function notifyOnce(alarm) {
+    if (getVisibility() !== "visible") postToSW(alarm);
+  }
+
   function start(getSoundingAlarms, intervalMs = 1000) {
     stop();
     timerId = setInterval(() => tick(getSoundingAlarms()), intervalMs);
@@ -72,5 +83,5 @@ export function createNotifyRouter({ vibrate, postToSW, visibilityState }) {
     lastNagAt = {};
   }
 
-  return { tick, start, stop };
+  return { tick, start, stop, notifyOnce };
 }

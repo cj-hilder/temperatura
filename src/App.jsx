@@ -11,6 +11,7 @@ import SettingsPage from "./SettingsPage.jsx";
 import HelpPage from "./HelpPage.jsx";
 import AboutPage from "./AboutPage.jsx";
 import ExtendDialog from "./ExtendDialog.jsx";
+import AlarmOverlay from "./AlarmOverlay.jsx";
 import * as t from "./theme.js";
 
 export default function App() {
@@ -36,9 +37,9 @@ export default function App() {
   /* ── Android back button ──────────────────────────────────────────────────
    * Without a guard, back exits an installed PWA instantly from anywhere.
    * The guard intercepts every press and hands it here; resolveBackAction
-   * (build-plan §7 decision 3) decides what it means: silence the earliest
-   * sounding alarm, close an open editor/overlay, step back a screen, or ask
-   * to quit.
+   * (build-plan §7 decision 3) decides what it means: resolve the earliest
+   * outstanding alarm, close an open editor/overlay, step back a screen, or
+   * ask to quit.
    *
    * Arming is a callable rather than a bare mount effect because the Quit
    * path deliberately disarms (see confirmQuit) and a tap can bring it back.
@@ -47,8 +48,11 @@ export default function App() {
    * reads live state from a ref so re-arming isn't needed on every render —
    * see RTW's App.jsx:387-410 for the identical shape.
    */
-  const anySounding = engine.openRecipes.some(({ instances }) =>
-    instances.some((i) => Object.values(i.alarmState).some((s) => s.sounding))
+  // A missed alarm is exactly as outstanding as a sounding one — the global
+  // overlay (below) blocks on both, so back-button priority must too, or
+  // back could slip past a missed alarm straight to closing a panel/editor.
+  const anyOutstanding = engine.openRecipes.some(({ instances }) =>
+    instances.some((i) => Object.values(i.alarmState).some((s) => s.sounding || s.missed))
   );
 
   // The quit prompt is itself a dismissable — back on it must be Stay, never
@@ -78,7 +82,7 @@ export default function App() {
   useBackDismiss(!!engine.pendingExtend, engine.cancelExtend);
 
   const backStateRef = useRef({});
-  backStateRef.current = { anySounding, dismissable: !!backDismissRef.current, screen };
+  backStateRef.current = { anyOutstanding, dismissable: !!backDismissRef.current, screen };
 
   const uninstallBackRef = useRef(null);
   const armBackGuard = useCallback(() => {
@@ -91,7 +95,7 @@ export default function App() {
       onBack: () => {
         const { screen: currentScreen } = backStateRef.current;
         switch (resolveBackAction(backStateRef.current)) {
-          case "silenceEarliest": engine.silenceEarliestGlobal(); break;
+          case "silenceEarliest": engine.resolveEarliestGlobal(); break;
           case "dismiss": backDismissRef.current?.(); break;
           case "toRecipe": setScreen({ view: "recipe", recipeId: currentScreen.recipeId }); break;
           case "toHome": setScreen({ view: "home" }); break;
@@ -170,7 +174,6 @@ export default function App() {
       {settingsOpen && <SettingsPage engine={engine} onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpPage onClose={() => setHelpOpen(false)} />}
       {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}
-      {engine.pendingExtend && <ExtendDialog onCancel={engine.cancelExtend} onConfirm={engine.confirmExtend} />}
 
       {quitAsk && (
         <div
@@ -193,6 +196,16 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Topmost among the "passive" overlays — sits over menu/settings/help/
+          about/quitAsk and over an open recipe/step editor (part of
+          activeScreen, which renders first), since a sounding or missed
+          alarm is more urgent than any of those. ExtendDialog renders AFTER
+          this (see below), so it paints on top of the alarm overlay — Extend
+          is a row action *within* the overlay, and must stay answerable
+          while the overlay it was opened from is still showing underneath. */}
+      <AlarmOverlay engine={engine} />
+      {engine.pendingExtend && <ExtendDialog onCancel={engine.cancelExtend} onConfirm={engine.confirmExtend} />}
     </>
   );
 }

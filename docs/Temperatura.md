@@ -261,7 +261,13 @@ A **one-shot** time alarm and the **duration-reached** alarm are the exception: 
 
 Restart clears missed status for every alarm on the step, including temperature alarms (which Restart otherwise leaves alone) — a restart is a fresh run of the step, and a stale missed flag would otherwise permanently block that one alarm with no other way to clear it.
 
-Currently, a missed alarm is resolved from the step page itself (a "Missed" list next to "Sounding", with a Dismiss button per alarm) rather than from a dedicated overlay or the notification — that's a planned later addition. A missed alarm's notification is not yet distinguished from a sounding one beyond going quiet (no more re-posts/vibration nags); its Silence action still shows, and tapping it while already missed is a harmless no-op.
+#### The alarm overlay
+
+Every currently sounding or missed alarm, across every open recipe and every running instance, is shown in one overlay that sits on top of everything else in the app — including an open recipe or step editor. Each row shows the recipe name, step name, alarm name, and the instance's tag if it has one. There is no way to close the overlay directly: it disappears only once every row has been resolved (silenced if sounding, dismissed if missed), one at a time or in any order.
+
+A row for the duration-reached alarm also carries an **Extend** button beside Silence/Dismiss — the same rule the step page's own Extend button already follows (available whenever the step has a duration). Extending a missed duration alarm from the overlay uses the same "from now, not from the stale target" math described above.
+
+The thermometer button and the Android back button both resolve the single earliest outstanding alarm across every instance (silencing if it's sounding, dismissing if it's already missed) — the same "earliest first" rule as before, just spanning both states now. Both are swallowed with no effect if nothing is outstanding.
 
 Press-count arithmetic: if presses are received when no alarm is sounding, they are swallowed. If one alarm sounds, and the user presses twice, the alarm is silenced and the second press is swallowed. When the counter wraps or a cold restart of the Feather we will see the count go down instead of up. Treat the count going down as a single button press.
 
@@ -306,14 +312,14 @@ A notification stays up until one of:
 
 It does not auto-close on a timer. This is the opposite of Manawa Pace, whose notifications are transient state-change cues and are closed after a few hundred milliseconds; Temperatura's notifications represent a condition that persists until the user deals with it, so `requireInteraction: true`.
 
-##### Silencing from the notification
+##### Silencing (or dismissing) from the notification
 
-The notification is the only phone-side silence path available while the app is hidden, so it must accept the interaction:
+The notification is the only phone-side path available while the app is hidden, so it must accept the interaction — and it must accept the right one, since a missed alarm has nothing sounding to silence:
 
-* The notification carries a **Silence** action.
-* The service worker's `notificationclick` handler silences the alarm. If a client is alive it posts the silence to the client; if no client is alive the service worker records the silence so the client applies it on wake, and closes the notification either way.
-* Silencing from the notification is identical in effect to a thermometer button press or an in-app silence: it silences exactly the one alarm the notification belongs to, and does not cancel a repeating alarm's future repeats.
-* A notification for a silenced alarm is closed immediately and not re-posted.
+* A still-sounding alarm's notification carries a **Silence** action; a missed alarm's carries **Dismiss** instead. Tapping the notification's body (not an action button) does the same as whichever of the two currently applies.
+* The service worker's `notificationclick` handler posts the resolution to any live client. If no client is alive, the notification still closes, but nothing is recorded for later — the instance's alarm state is unaffected, and it's simply re-evaluated normally (sounding, or by then possibly missed) the next time the app opens and its tick loop runs.
+* Resolving from the notification is identical in effect to a thermometer button press or the in-app overlay: it applies to exactly the one alarm the notification belongs to, and silencing does not cancel a repeating alarm's future repeats.
+* A notification for a resolved alarm is closed immediately and not re-posted.
 
 If several alarms are sounding, each has its own notification and its own tag, so each can be silenced independently. This is the one place where the phone-side path is better than the thermometer button, which always silences the earliest alarm to fire.
 

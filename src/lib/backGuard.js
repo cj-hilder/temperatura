@@ -255,11 +255,17 @@ export function requestAppExit({
  * close an open panel/editor → step page back to recipe → recipe back to
  * home → confirm exit":
  *
- *   1. anySounding  → "silenceEarliest"  the same earliest-first rule as the
+ *   1. anyOutstanding → "silenceEarliest" the same earliest-first rule as the
  *                                        thermometer button (alarms.js's
- *                                        earliestSoundingAcrossInstances) —
- *                                        an alarm sounding is the most urgent,
- *                                        most transient thing on screen.
+ *                                        earliestOutstandingAcrossInstances) —
+ *                                        an alarm sounding OR sitting missed
+ *                                        is the most urgent, most transient
+ *                                        thing on screen. The action string
+ *                                        stays "silenceEarliest" even though
+ *                                        resolving it might actually dismiss
+ *                                        a missed alarm — the caller decides
+ *                                        which, this is just "resolve the
+ *                                        most urgent alarm."
  *   2. dismissable  → "dismiss"          an open recipe/step editor, or a
  *                                        Home picker overlay, closes the way
  *                                        its own Cancel/✕ control would.
@@ -271,13 +277,13 @@ export function requestAppExit({
  * only opens the confirmation, it never closes the app.
  *
  * @param {Object} [state]
- * @param {boolean} [state.anySounding] - at least one alarm is sounding, anywhere
+ * @param {boolean} [state.anyOutstanding] - at least one alarm is sounding or missed, anywhere
  * @param {boolean} [state.dismissable] - a panel/editor is open that owns "back"
  * @param {{view: string}} [state.screen] - current screen descriptor
  * @returns {"silenceEarliest"|"dismiss"|"toRecipe"|"toHome"|"askQuit"}
  */
-export function resolveBackAction({ anySounding, dismissable, screen } = {}) {
-  if (anySounding) return "silenceEarliest";
+export function resolveBackAction({ anyOutstanding, dismissable, screen } = {}) {
+  if (anyOutstanding) return "silenceEarliest";
   if (dismissable) return "dismiss";
   if (screen?.view === "step") return "toRecipe";
   if (screen?.view === "recipe") return "toHome";

@@ -145,7 +145,7 @@ console.log('\nresolveBackAction — build-plan §7 decision 3, exhaustive prior
   const T = true, F = false;
   const home = { view: 'home' }, recipe = { view: 'recipe', recipeId: 'r1' }, step = { view: 'step', recipeId: 'r1', stepId: 's1' };
   const cases = [
-    // anySounding, dismissable, screen, expected
+    // anyOutstanding, dismissable, screen, expected
     [F, F, home, 'askQuit'],
     [F, F, recipe, 'toHome'],
     [F, F, step, 'toRecipe'],
@@ -155,15 +155,15 @@ console.log('\nresolveBackAction — build-plan §7 decision 3, exhaustive prior
     [T, F, home, 'silenceEarliest'],
     [T, T, step, 'silenceEarliest'], // silencing beats everything else
   ];
-  for (const [anySounding, dismissable, screen, want] of cases) {
-    const got = resolveBackAction({ anySounding, dismissable, screen });
-    ok(`sounding=${+anySounding} dismissable=${+dismissable} screen=${screen.view} → ${want}`, got === want, got);
+  for (const [anyOutstanding, dismissable, screen, want] of cases) {
+    const got = resolveBackAction({ anyOutstanding, dismissable, screen });
+    ok(`outstanding=${+anyOutstanding} dismissable=${+dismissable} screen=${screen.view} → ${want}`, got === want, got);
   }
   ok('no state at all → askQuit', resolveBackAction() === 'askQuit');
   ok('empty state → askQuit', resolveBackAction({}) === 'askQuit');
   // Back must never be the press that CONFIRMS an exit.
   ok('back never returns a quit-now action',
-    cases.every(([anySounding, dismissable, screen]) => resolveBackAction({ anySounding, dismissable, screen }) !== 'quit'));
+    cases.every(([anyOutstanding, dismissable, screen]) => resolveBackAction({ anyOutstanding, dismissable, screen }) !== 'quit'));
 }
 
 console.log('\nonBack:');
@@ -319,9 +319,9 @@ console.log('\nEnd to end: presses silence, dismiss, step back, then ask, and ne
   const env = makeEnv(1);
   // Mirrors App.jsx's onBack switch. Kept to one line per action so the two
   // can't meaningfully drift; the resolver holds the actual ordering.
-  const ui = { anySounding: false, dismissable: false, screen: { view: 'step', recipeId: 'r1', stepId: 's1' } };
+  const ui = { anyOutstanding: false, dismissable: false, screen: { view: 'step', recipeId: 'r1', stepId: 's1' } };
   const apply = (a) => {
-    if (a === 'silenceEarliest') ui.anySounding = false;
+    if (a === 'silenceEarliest') ui.anyOutstanding = false;
     else if (a === 'dismiss') ui.dismissable = false;
     else if (a === 'toRecipe') ui.screen = { view: 'recipe', recipeId: 'r1' };
     else if (a === 'toHome') ui.screen = { view: 'home' };
@@ -329,9 +329,9 @@ console.log('\nEnd to end: presses silence, dismiss, step back, then ask, and ne
   };
   const uninstall = installBackGuard({ ...env, onBack: () => apply(resolveBackAction(ui)) });
 
-  ui.anySounding = true;
+  ui.anyOutstanding = true;
   env.history.back();
-  ok('back silences the sounding alarm first', ui.anySounding === false && ui.screen.view === 'step');
+  ok('back silences the sounding alarm first', ui.anyOutstanding === false && ui.screen.view === 'step');
 
   ui.dismissable = true;
   env.history.back();
@@ -350,9 +350,9 @@ console.log('\nEnd to end: presses silence, dismiss, step back, then ask, and ne
   // A fast double-tap while an alarm is sounding: silences, then asks (screen
   // already at home, nothing dismissable). Must not slip through to an exit.
   ui.quitAsking = false;
-  ui.anySounding = true;
+  ui.anyOutstanding = true;
   env.rawBurst(2); env.firePop(2);
-  ok('double-tap: alarm silenced then prompt shown', ui.anySounding === false && ui.quitAsking === true);
+  ok('double-tap: alarm silenced then prompt shown', ui.anyOutstanding === false && ui.quitAsking === true);
   ok('still never exited', env.exited === false);
 
   // Only a confirmed Quit lets go.

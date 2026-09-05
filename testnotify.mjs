@@ -76,5 +76,29 @@ console.log('\ncreateNotifyRouter.tick() — routes by visibility, one shared ti
   ok('stop() resets bookkeeping, so the same alarm nags immediately again', posted.length === 2);
 }
 
+console.log('\ncreateNotifyRouter.notifyOnce() — a one-time post for an alarm that just went missed:');
+{
+  let vibrated = [];
+  let posted = [];
+  let visible = true;
+  const router = createNotifyRouter({
+    vibrate: (pattern) => vibrated.push(pattern),
+    postToSW: (alarm) => posted.push(alarm),
+    visibilityState: () => (visible ? 'visible' : 'hidden'),
+  });
+  const missedAlarm = { id: 'y', title: 'T', body: 'B', missed: true };
+
+  router.notifyOnce(missedAlarm);
+  ok('visible: does nothing — nothing posted, nothing vibrated', posted.length === 0 && vibrated.length === 0);
+
+  visible = false;
+  router.notifyOnce(missedAlarm);
+  ok('hidden: posts to the SW', posted.length === 1 && posted[0].id === 'y');
+  ok('never vibrates, even while hidden — a missed alarm makes no noise', vibrated.length === 0);
+
+  router.notifyOnce(missedAlarm);
+  ok('calling it again posts again — de-duplication (post once per transition) is the CALLER\'s job, not the router\'s', posted.length === 2);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
