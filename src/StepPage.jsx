@@ -121,7 +121,6 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
         <button style={t.iconButton} title="Back" onClick={() => navigate({ view: "recipe", recipeId })}>←</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
@@ -134,6 +133,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
             🌡️
           </button>
         )}
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
         <button
           style={t.iconButton}

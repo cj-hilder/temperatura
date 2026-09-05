@@ -89,9 +89,9 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
         <button
           style={t.iconButton}

@@ -50,10 +50,10 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
   return (
     <div style={t.page}>
       <div style={t.iconRow}>
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <button style={t.iconButton} title="Open a recipe" onClick={() => setPicker("open")}><FolderIcon /></button>
         <button style={t.iconButton} title="New recipe" onClick={handleNew}>＋</button>
         <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}><SearchIcon /></button>
+        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
         <button
           style={t.iconButton}
