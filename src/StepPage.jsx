@@ -201,16 +201,16 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
           </div>
         )}
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "16px 0" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0" }}>
           {!instance && <button style={t.primaryButton} onClick={handleStart}>Start</button>}
           {instance && (
             <>
-              <button style={t.primaryButton} onClick={handlePauseResume}>
+              <button style={t.smallButton} onClick={handlePauseResume}>
                 {instance.status === "running" ? "Pause" : "Resume"}
               </button>
-              <button style={t.secondaryButton} onClick={handleRestart}>Restart</button>
-              <button style={t.secondaryButton} onClick={handleComplete}>Complete</button>
-              <button style={t.secondaryButton} onClick={handleDuplicate}>Duplicate</button>
+              <button style={t.smallButton} onClick={handleRestart}>Restart</button>
+              <button style={t.primaryButton} onClick={handleComplete}>Complete</button>
+              <button style={t.smallButton} onClick={handleDuplicate}>Duplicate</button>
             </>
           )}
         </div>
