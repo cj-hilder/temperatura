@@ -6,7 +6,7 @@ import { createWebBluetoothBackend, resetPressBaseline, applyPressBaseline } fro
 import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
-import { earliestSoundingAcrossInstances, themeIdForFiredAlarm, themeIdForAlarmId } from "./lib/alarms.js";
+import { earliestSoundingAcrossInstances, themeIdForAlarmId } from "./lib/alarms.js";
 import { alarmName } from "./stepDisplay.js";
 
 // Promotes AlarmDemo.jsx's wiring (keep-alive, thermometer, tick loop,
@@ -134,6 +134,25 @@ export function useAppEngine() {
     const tag = compositeTag(instanceId, alarmId);
     stopAlarm(tag);
     soundingTagsRef.current.delete(tag);
+  }
+
+  // Starts the voice for one sounding alarm if it isn't already playing —
+  // idempotent so the tick loop can call it for every currently-sounding
+  // alarm every cycle, not just the tick an alarm first fires on (see the
+  // tick loop's own comment for why that distinction matters after a
+  // relaunch). Decoding only happens on the transition into
+  // soundingTagsRef, not every tick, so this stays cheap in steady state.
+  async function ensureVoicePlaying(tag, alarmId, stepAlarmDefs, themesById, themeIds) {
+    if (soundingTagsRef.current.has(tag)) return;
+    const ctx = keepAliveRef.current.audioRef.current?.ctx;
+    if (!ctx) return;
+    const theme = themesById.get(themeIdForAlarmId(alarmId, stepAlarmDefs, themeIds));
+    const soundBuf = theme ? await app.store.getSound(theme.id) : null;
+    const buffer = soundBuf ? await decodeSound(ctx, soundBuf) : null;
+    if (soundBuf && !buffer) console.error(`theme "${theme.id}" sound failed to decode — falling back to the built-in tone`);
+    const { rampSeconds, repeatIntervalSeconds } = resolvePlaybackParams(theme);
+    playAlarm(ctx, tag, { buffer, rampSeconds, repeatIntervalSeconds });
+    soundingTagsRef.current.add(tag);
   }
 
   // Silences every currently-sounding alarm on one instance. Needed anywhere
@@ -346,21 +365,17 @@ export function useAppEngine() {
             });
 
             const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
-            for (const fired of result.newlyFired) {
-              const tag = compositeTag(instance.id, fired.id);
-              const ctx = keepAliveRef.current.audioRef.current?.ctx;
-              if (ctx) {
-                const theme = themesById.get(themeIdForFiredAlarm(fired, themeIds));
-                const soundBuf = theme ? await app.store.getSound(theme.id) : null;
-                // Decoding only happens here, on an actual fire — rare
-                // compared to the once-a-second tick — so this is not a
-                // per-tick cost.
-                const buffer = soundBuf ? await decodeSound(ctx, soundBuf) : null;
-                if (soundBuf && !buffer) console.error(`theme "${theme.id}" sound failed to decode — falling back to the built-in tone`);
-                const { rampSeconds, repeatIntervalSeconds } = resolvePlaybackParams(theme);
-                playAlarm(ctx, tag, { buffer, rampSeconds, repeatIntervalSeconds });
-              }
-              soundingTagsRef.current.add(tag);
+            // Every currently-sounding alarm, not just this tick's
+            // newlyFired ones — a relaunch starts soundingTagsRef empty, so
+            // an alarm that was already sounding before the app closed has
+            // no "newly fired" tick to hang audio off of; vibration/
+            // notifications worked already (they read result.sounding
+            // directly) but audio silently never started. ensureVoicePlaying
+            // is idempotent (guards on soundingTagsRef itself), so looping
+            // over every sounding alarm every tick costs nothing extra for
+            // the normal already-playing case.
+            for (const alarmId of result.sounding) {
+              await ensureVoicePlaying(compositeTag(instance.id, alarmId), alarmId, stepAlarmDefs, themesById, themeIds);
             }
             for (const tag of [...soundingTagsRef.current]) {
               if (tag.startsWith(`${instance.id}:`) && !stillSounding.has(tag)) {

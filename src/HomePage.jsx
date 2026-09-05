@@ -63,7 +63,7 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
         </button>
       </div>
 
-      {latestSample && (
+      {connectionState === "connected" && latestSample && (
         <div style={{ padding: "10px 16px", fontSize: 14, color: t.colors.textMuted }}>
           Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
         </div>

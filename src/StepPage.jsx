@@ -148,6 +148,12 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         </button>
       </div>
 
+      {connectionState === "connected" && claimed && latestSample && (
+        <div style={{ padding: "10px 16px", fontSize: 14, color: t.colors.textMuted }}>
+          Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
+        </div>
+      )}
+
       {instances.length > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: 8 }}>
           <button style={t.smallButton} disabled={clampedIndex === 0} onClick={() => setIndex(clampedIndex - 1)}>←</button>
@@ -171,12 +177,6 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
             <button style={t.smallButton} onClick={() => requestExtend(instance.id)}>Extend</button>
           )}
         </p>
-
-        {claimed && latestSample && (
-          <p style={{ fontSize: 14 }}>
-            Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
-          </p>
-        )}
 
         {progress && (
           <div style={{ margin: "12px 0" }}>
