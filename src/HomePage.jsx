@@ -66,6 +66,7 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
 
       {connectionState === "connected" && latestSample && <CurrentTemperatureLine sample={latestSample} />}
 
+      <h4 style={{ padding: "0 16px" }}>Recipes</h4>
       {openRecipes.length === 0 && (
         <p style={{ padding: "0 16px", color: t.colors.textMuted }}>No recipes open. Tap Open to pick one, or ＋ to create one.</p>
       )}
@@ -108,7 +109,11 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
               if (!step) return null;
               const progress = computeStepProgress(instance, step, engine, Date.now());
               return (
-                <div key={instance.id} style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${t.colors.border}` }}>
+                <div
+                  key={instance.id}
+                  style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${t.colors.border}`, cursor: "pointer" }}
+                  onClick={() => navigate({ view: "step", recipeId: recipe.id, stepId: step.id })}
+                >
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {step.name}
                     {instance.tag && <span style={{ color: t.colors.textMuted, fontWeight: 400 }}> — {instance.tag}</span>}
