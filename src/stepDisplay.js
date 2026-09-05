@@ -24,12 +24,11 @@ export function alarmName(step, alarmId) {
 export function describeStepAlarms(step) {
   const lines = [];
   for (const a of step.timeAlarms) {
-    const minutes = a.atMs / 60000;
     lines.push({
       id: a.id,
       text: a.repeat
-        ? `${a.name} — ${minutes} min in, every ${a.intervalMs / 60000} min`
-        : `${a.name} — ${minutes} min in`,
+        ? `${a.name} — ${formatDuration(a.atMs)} in, every ${formatDuration(a.intervalMs)}`
+        : `${a.name} — ${formatDuration(a.atMs)} in`,
     });
   }
   for (const a of step.tempAlarms) {

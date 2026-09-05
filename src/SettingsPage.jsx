@@ -218,25 +218,25 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
       <label style={t.label}>Repeat interval (seconds of silence between repeats)</label>
       <input style={{ ...t.input, width: 100 }} type="number" min={0} value={repeatIntervalSeconds} onChange={(e) => setRepeatIntervalSeconds(e.target.value)} />
 
+      <label style={t.label}>Silence after (max time the alarm will sound for)</label>
+      <TimeInput valueMs={silenceAfterMs} onChangeMs={setSilenceAfterMs} />
+
       <label style={{ ...t.label, display: "flex", alignItems: "center", gap: 6 }}>
         <input type="checkbox" checked={vibrate} onChange={(e) => setVibrate(e.target.checked)} /> Vibrate
       </label>
 
-      <label style={t.label}>Silence after (before an unanswered alarm is marked missed)</label>
-      <TimeInput valueMs={silenceAfterMs} onChangeMs={setSilenceAfterMs} />
-
-      {canPreview && (
-        <button style={{ ...t.smallButton, marginTop: 10 }} onClick={togglePreview}>
-          {previewing ? "Stop preview" : "Preview"}
-        </button>
-      )}
       {pickError && <p style={t.errorText}>{pickError}</p>}
 
       {saveError && <p style={t.errorText}>{saveError}</p>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
         <button style={t.secondaryButton} onClick={() => { stopPreview(); onToggle(); }}>Cancel</button>
         <button style={t.primaryButton} onClick={save}>Save</button>
+        {canPreview && (
+          <button style={t.smallButton} onClick={togglePreview}>
+            {previewing ? "Stop preview" : "Preview"}
+          </button>
+        )}
         {!isDefault && !isNew && (
           deleteConfirm ? (
             <>
