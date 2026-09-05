@@ -87,6 +87,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
     (instancesByStep[instance.stepId] ??= []).push(instance);
   }
   const completionTicks = entry?.completionTicks ?? {};
+  const hasAnyTicks = Object.values(completionTicks).some((n) => n > 0);
 
   const handleClearTallies = async () => {
     await app.clearCompletionTicks(recipe.id);
@@ -191,7 +192,13 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
       })}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "16px" }}>
-        <button style={t.secondaryButton} onClick={handleClearTallies}>Clear all tallies</button>
+        <button
+          style={{ ...t.secondaryButton, ...(hasAnyTicks ? null : t.disabledButton) }}
+          disabled={!hasAnyTicks}
+          onClick={handleClearTallies}
+        >
+          Clear all tallies
+        </button>
         <button
           style={{ ...t.secondaryButton, ...(instances.length === 0 ? t.disabledButton : null) }}
           disabled={instances.length === 0}

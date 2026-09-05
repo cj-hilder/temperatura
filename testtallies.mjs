@@ -44,9 +44,26 @@ console.log('\nCompletion tallies — Clear all tallies:');
   ok('clearCompletionTicks zeroes every step', Object.keys(await app.getCompletionTicks(recipe.id)).length === 0);
 }
 
-console.log('\nCompletion tallies — auto-reset when starting step 1 while the recipe is fully idle:');
+console.log('\nCompletion tallies — auto-reset is off by default:');
 {
   const app = createAppController({ backend: new MemoryBackend(), now: () => 0 });
+  ok('getAutoClearTallies defaults to false on a fresh install', (await app.getAutoClearTallies()) === false);
+
+  const recipe = await mkRecipe(app, ['Mix']);
+  await app.startInstance({ id: 'i1', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [], isFirstStep: true });
+  await app.completeInstance('i1');
+  ok('a tick was recorded', (await app.getCompletionTicks(recipe.id))['step-1'] === 1);
+
+  // Recipe is fully idle, and this is a step-1 start — but the setting is
+  // off, so nothing should auto-clear.
+  await app.startInstance({ id: 'i2', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [], isFirstStep: true });
+  ok('does not auto-clear while the setting is off, even though the recipe is idle', (await app.getCompletionTicks(recipe.id))['step-1'] === 1);
+}
+
+console.log('\nCompletion tallies — auto-reset when starting step 1 while the recipe is fully idle (setting on):');
+{
+  const app = createAppController({ backend: new MemoryBackend(), now: () => 0 });
+  await app.setAutoClearTallies(true);
   const recipe = await mkRecipe(app, ['Mix', 'Rise']);
 
   // One full pass: step 1 then step 2, both completed.
@@ -63,9 +80,10 @@ console.log('\nCompletion tallies — auto-reset when starting step 1 while the 
   ok('starting step 1 while the recipe is fully idle clears every tally', Object.keys(await app.getCompletionTicks(recipe.id)).length === 0);
 }
 
-console.log('\nCompletion tallies — auto-reset does NOT fire while a parallel batch is still mid-recipe:');
+console.log('\nCompletion tallies — auto-reset does NOT fire while a parallel batch is still mid-recipe (setting on):');
 {
   const app = createAppController({ backend: new MemoryBackend(), now: () => 0 });
+  await app.setAutoClearTallies(true);
   const recipe = await mkRecipe(app, ['Mix', 'Rise']);
 
   // Batch A: mix completed, now rising (in-progress on step 2) — set aside
@@ -79,9 +97,10 @@ console.log('\nCompletion tallies — auto-reset does NOT fire while a parallel 
   ok('does not reset while batch A is still mid-recipe (rising)', (await app.getCompletionTicks(recipe.id))['step-1'] === 1);
 }
 
-console.log('\nCompletion tallies — auto-reset does NOT fire if step 1 itself already has a running instance:');
+console.log('\nCompletion tallies — auto-reset does NOT fire if step 1 itself already has a running instance (setting on):');
 {
   const app = createAppController({ backend: new MemoryBackend(), now: () => 0 });
+  await app.setAutoClearTallies(true);
   const recipe = await mkRecipe(app, ['Mix']);
 
   await app.startInstance({ id: 'a1', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [], isFirstStep: true });

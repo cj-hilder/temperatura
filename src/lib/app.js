@@ -27,6 +27,10 @@ const INGREDIENTS_MULTIPLIER_PREFIX = "ingredientsMultiplier:";
 // recipeId/stepId without ever touching a recipe/step record (see
 // doExtendDuration's comment: app.js's instance functions don't do that).
 const COMPLETION_TICKS_PREFIX = "completionTicks:";
+// Off by default: auto-clearing on every fresh install would surprise a user
+// who never asked for it — this is an opt-in convenience, not a default
+// behavior the app imposes.
+const AUTO_CLEAR_TALLIES_SETTING_KEY = "autoClearTallies";
 
 /**
  * @param {object} [deps]
@@ -88,6 +92,8 @@ export function createAppController(deps = {}) {
 
   const getCompletionTicks = (recipeId) => store.getSetting(COMPLETION_TICKS_PREFIX + recipeId, {});
   const clearCompletionTicks = (recipeId) => store.setSetting(COMPLETION_TICKS_PREFIX + recipeId, {});
+  const getAutoClearTallies = () => store.getSetting(AUTO_CLEAR_TALLIES_SETTING_KEY, false);
+  const setAutoClearTallies = (value) => store.setSetting(AUTO_CLEAR_TALLIES_SETTING_KEY, value);
 
   async function incrementCompletionTick(recipeId, stepId) {
     const ticks = await getCompletionTicks(recipeId);
@@ -100,8 +106,10 @@ export function createAppController(deps = {}) {
     // "Starting step 1 clears the tallies, but only when nothing else in the
     // recipe is mid-flight" — checked against instances as they stand right
     // now, before this one is created, so this new instance can never count
-    // against itself.
-    if (isFirstStep) {
+    // against itself. Gated on the opt-in "Auto clear tallies" setting —
+    // off by default, so a fresh install never auto-clears anything the
+    // user didn't ask for.
+    if (isFirstStep && (await getAutoClearTallies())) {
       const existing = await store.listInstancesForRecipe(recipeId);
       if (noInstancesInProgress(existing)) await clearCompletionTicks(recipeId);
     }
@@ -291,6 +299,7 @@ export function createAppController(deps = {}) {
     ensureDefaultTheme, getDataLossAlarmTheme, setDataLossAlarmTheme,
     getIngredientsMultiplier, setIngredientsMultiplier,
     getCompletionTicks, clearCompletionTicks,
+    getAutoClearTallies, setAutoClearTallies,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

@@ -15,12 +15,16 @@ export default function SettingsPage({ engine, onClose }) {
   const { app } = engine;
   const [themes, setThemes] = useState([]);
   const [dataLossThemeId, setDataLossThemeId] = useState(null);
+  const [autoClearTallies, setAutoClearTalliesState] = useState(false);
   const [expanded, setExpanded] = useState(null); // theme id | NEW_THEME | null
 
   const load = async () => {
-    const [list, dataLossId] = await Promise.all([app.store.listAlarmThemes(), app.getDataLossAlarmTheme()]);
+    const [list, dataLossId, autoClear] = await Promise.all([
+      app.store.listAlarmThemes(), app.getDataLossAlarmTheme(), app.getAutoClearTallies(),
+    ]);
     setThemes(list);
     setDataLossThemeId(dataLossId);
+    setAutoClearTalliesState(autoClear);
   };
   useEffect(() => {
     load();
@@ -32,6 +36,11 @@ export default function SettingsPage({ engine, onClose }) {
   const changeDataLossTheme = async (themeId) => {
     setDataLossThemeId(themeId);
     await app.setDataLossAlarmTheme(themeId);
+  };
+
+  const changeAutoClearTallies = async (value) => {
+    setAutoClearTalliesState(value);
+    await app.setAutoClearTallies(value);
   };
 
   return (
@@ -49,6 +58,20 @@ export default function SettingsPage({ engine, onClose }) {
             </select>
           </div>
         )}
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "13px 0", borderBottom: `1px solid ${t.colors.border}` }}>
+          <div>
+            <div style={{ ...t.label, margin: 0 }}>Auto clear tallies</div>
+            <div style={{ fontSize: 12.5, color: t.colors.textMuted, marginTop: 2 }}>
+              Automatically clear tallies when starting the first step of a recipe (provided no steps are already in progress)
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={autoClearTallies}
+            onChange={(e) => changeAutoClearTallies(e.target.checked)}
+          />
+        </div>
 
         <h3>Alarm themes</h3>
         {defaultTheme && (
