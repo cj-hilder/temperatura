@@ -95,6 +95,11 @@ export const smallButton = {
   color: colors.text,
 };
 
+export const disabledButton = {
+  opacity: 0.4,
+  cursor: "default",
+};
+
 export const input = {
   width: "100%",
   padding: "8px 10px",

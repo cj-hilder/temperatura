@@ -76,6 +76,10 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   const instance = instances[clampedIndex];
   const stepAlarmDefs = buildStepAlarmDefs(step);
 
+  const stepIndex = recipe.steps.findIndex((s) => s.id === stepId);
+  const prevStep = stepIndex > 0 ? recipe.steps[stepIndex - 1] : null;
+  const nextStep = stepIndex < recipe.steps.length - 1 ? recipe.steps[stepIndex + 1] : null;
+
   const handleStart = async () => {
     await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs });
     await refresh();
@@ -202,7 +206,25 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         )}
 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0" }}>
-          {!instance && <button style={t.primaryButton} onClick={handleStart}>Start</button>}
+          {!instance && (
+            <>
+              <button
+                style={{ ...t.smallButton, ...(prevStep ? null : t.disabledButton) }}
+                disabled={!prevStep}
+                onClick={() => prevStep && navigate({ view: "step", recipeId, stepId: prevStep.id })}
+              >
+                Previous
+              </button>
+              <button style={t.primaryButton} onClick={handleStart}>Start</button>
+              <button
+                style={{ ...t.smallButton, ...(nextStep ? null : t.disabledButton) }}
+                disabled={!nextStep}
+                onClick={() => nextStep && navigate({ view: "step", recipeId, stepId: nextStep.id })}
+              >
+                Next
+              </button>
+            </>
+          )}
           {instance && (
             <>
               <button style={t.smallButton} onClick={handlePauseResume}>
