@@ -260,3 +260,14 @@ export function toggleClaim(claimHolderId, instanceId) {
   // "never auto-take" governs automatic acquisition at Start only.
   return claimHolderId === instanceId ? null : instanceId;
 }
+
+// Completion tallies (RecipePage's per-step tick counts): starting the
+// recipe's first step resets them, but only when nothing else in the recipe
+// is mid-flight — every instance belonging to it, across every step, is
+// already completed (or none exist yet). Deliberately not "the last step has
+// a tick": steps aren't gated on each other, so that would fire (and wipe a
+// still-in-progress parallel batch's tally) whenever any instance of the
+// last step had ever completed, regardless of what else was running.
+export function noInstancesInProgress(instancesForRecipe) {
+  return !instancesForRecipe.some((i) => i.status !== "completed");
+}

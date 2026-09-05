@@ -9,6 +9,7 @@ import {
   duplicateInstance, setTag as setInstanceTag, elapsedRunningMs, elapsedTotalMs,
   advanceInBand, isMeasured, deriveProvenance, extendDuration,
   acquireClaimOnStart, releaseClaimOnComplete, toggleClaim as toggleClaimHolder,
+  noInstancesInProgress,
 } from "./instances.js";
 import { evaluateAlarms, silenceEarliest, silenceById, dismissById } from "./alarms.js";
 
@@ -20,6 +21,12 @@ const DATA_LOSS_THEME_SETTING_KEY = "dataLossAlarmTheme";
 // id) rather than on the recipe record itself, since the multiplier is
 // spec'd as transient and explicitly NOT part of the recipe's own data.
 const INGREDIENTS_MULTIPLIER_PREFIX = "ingredientsMultiplier:";
+// Per-step completion tallies (RecipePage's tick marks), keyed by recipe id
+// like the multiplier above — not on the recipe record itself, so instance
+// lifecycle functions below can read/reset them from an instance's own
+// recipeId/stepId without ever touching a recipe/step record (see
+// doExtendDuration's comment: app.js's instance functions don't do that).
+const COMPLETION_TICKS_PREFIX = "completionTicks:";
 
 /**
  * @param {object} [deps]
@@ -45,7 +52,12 @@ export function createAppController(deps = {}) {
   const deleteRecipe = (id) => store.deleteRecipe(id);
   const openRecipe = (id) => store.openRecipe(id);
   const listOpenRecipeIds = () => store.listOpenRecipeIds();
-  const closeRecipe = (id) => store.closeRecipe(id, now());
+  // Tallies don't survive a close/reopen — a closed-then-reopened recipe is
+  // meant to feel like starting fresh, not like resuming a session.
+  const closeRecipe = async (id) => {
+    await store.closeRecipe(id, now());
+    await clearCompletionTicks(id);
+  };
 
   // ---- Claim ----
 
@@ -72,9 +84,27 @@ export function createAppController(deps = {}) {
   const getIngredientsMultiplier = (recipeId) => store.getSetting(INGREDIENTS_MULTIPLIER_PREFIX + recipeId, 1);
   const setIngredientsMultiplier = (recipeId, value) => store.setSetting(INGREDIENTS_MULTIPLIER_PREFIX + recipeId, value);
 
+  // ---- Completion tallies ----
+
+  const getCompletionTicks = (recipeId) => store.getSetting(COMPLETION_TICKS_PREFIX + recipeId, {});
+  const clearCompletionTicks = (recipeId) => store.setSetting(COMPLETION_TICKS_PREFIX + recipeId, {});
+
+  async function incrementCompletionTick(recipeId, stepId) {
+    const ticks = await getCompletionTicks(recipeId);
+    await store.setSetting(COMPLETION_TICKS_PREFIX + recipeId, { ...ticks, [stepId]: (ticks[stepId] || 0) + 1 });
+  }
+
   // ---- Instance lifecycle ----
 
-  async function doStartInstance({ id, recipeId, stepId, stepAlarmDefs }) {
+  async function doStartInstance({ id, recipeId, stepId, stepAlarmDefs, isFirstStep = false }) {
+    // "Starting step 1 clears the tallies, but only when nothing else in the
+    // recipe is mid-flight" — checked against instances as they stand right
+    // now, before this one is created, so this new instance can never count
+    // against itself.
+    if (isFirstStep) {
+      const existing = await store.listInstancesForRecipe(recipeId);
+      if (noInstancesInProgress(existing)) await clearCompletionTicks(recipeId);
+    }
     const instance = startInstance({ id, recipeId, stepId, stepAlarmDefs }, now());
     await store.createInstance(instance);
     const current = await getClaimHolderId();
@@ -109,6 +139,7 @@ export function createAppController(deps = {}) {
     await store.updateInstance(updated);
     const current = await getClaimHolderId();
     await store.setSetting(CLAIM_SETTING_KEY, releaseClaimOnComplete(current, instanceId));
+    await incrementCompletionTick(instance.recipeId, instance.stepId);
     return updated;
   }
 
@@ -259,6 +290,7 @@ export function createAppController(deps = {}) {
     getClaimHolderId, toggleClaim,
     ensureDefaultTheme, getDataLossAlarmTheme, setDataLossAlarmTheme,
     getIngredientsMultiplier, setIngredientsMultiplier,
+    getCompletionTicks, clearCompletionTicks,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

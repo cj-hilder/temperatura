@@ -57,6 +57,8 @@ The set of open recipes is itself persisted, and is restored when the app restar
 
 A recipe with one or more running instances is force-open. Its close button still appears, but tapping it warns the user that closing will complete all running instances of that recipe's steps, and closes only on confirmation.
 
+Closing a recipe also clears its completion tallies (see "Completion tallies" under Recipe page) — they don't survive a close/reopen, so reopening a closed recipe always starts every step's tick count at zero.
+
 ### Export as PDF
 
 Separate from the JSON export above (which is a machine-readable backup/import format), the hamburger menu also offers "Export as PDF" — a human-readable copy of a recipe, so it can be shared with someone who doesn't have the app. It renders the recipe (name, description, servings, notes, ingredients, and every step's name, description, duration/temperature band, and alarms in plain language) as a standalone HTML document opened in a new window, then invokes the browser's own print dialog — the user picks "Save as PDF" there. No PDF-generation library is involved or needed. Same act-on-current-recipe-else-picker behaviour as the JSON Export button.
@@ -65,7 +67,7 @@ Separate from the JSON export above (which is a machine-readable backup/import f
 
 1. ### Home page
 
-Icon row at the top: hamburger, open, new, search, connect
+Icon row at the top: open, new, search, hamburger, connect
 
 * Hamburger: settings, import, export, backup, restore, help, about  
 * Open: open a recipe from app local storage  
@@ -89,7 +91,7 @@ Tapping a tile causes the recipe page to appear, showing the recipe
 
 2. ## Recipe page
 
-Icon row at the top: hamburger, home, edit, connect
+Icon row at the top: home, edit, hamburger, connect
 
 * Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps
 
@@ -105,15 +107,25 @@ The main page contains
    1. Step name  
    2. Step description  
    3. Duration and temperature band  
-   4. An indication of whether the step is currently in progress and how many instances
+   4. An indication of whether the step is currently in progress and how many instances  
+   5. Completion ticks: a small mark in the bottom-right corner of the tile for every time this step has been completed. These accumulate indefinitely, with one exception — see "Completion tallies" below.  
+7. Below the step tiles, two buttons:  
+   1. **Clear all tallies** — zeroes every step's completion ticks for this recipe. Does not touch any running instance.  
+   2. **Wrap up this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK.
 
 Tapping a tile causes the step page to appear, showing the step and the step controls
+
+#### Completion tallies
+
+Each step's tick count is meant to answer "how many times has this gone through this step" at a glance — useful when several batches move through a recipe's steps in parallel. Starting the recipe's first step clears every step's tally for the whole recipe, but only when doing so is unambiguous: no instance of any step in the recipe — including the first step itself — is currently in progress (running or paused). In the common case of working straight through a recipe and starting again once it's done, this means the slate is clear automatically, with no user action needed.
+
+This check can't be perfect. A batch set aside between two steps (nothing currently running for it, but not finished either) looks idle to this check, so starting a fresh batch at step 1 at that moment would clear its history along with everything else. A step that is legitimately, deliberately skipped every time (e.g. a branch in the recipe that's never taken) never accumulates a tally of its own, but that's expected — a step with no completions has nothing to reset. For the cases the automatic check gets wrong, **Clear all tallies** is the manual override, and **Wrap up this recipe** is the fix for "I forgot to complete things as I went" — completing every still-running instance is exactly what makes the recipe idle, so starting step 1 next clears the tallies as expected.
 
 ## C. Step page
 
 If more than one instance of this step is currently in progress, swipe left/right to see other instances.
 
-Icon row at the top: hamburger, home, back, edit, thermometer, connect
+Icon row at the top: home, back, edit, thermometer, hamburger, connect
 
 * Back: back to the recipe page  
 * Edit: all of the step components become editable \- tap a component to edit it, you can also add and delete alarms  

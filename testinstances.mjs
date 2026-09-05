@@ -1,7 +1,7 @@
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag, elapsedRunningMs, elapsedTotalMs, advanceInBand,
-  isMeasured, deriveProvenance, extendDuration,
+  isMeasured, deriveProvenance, extendDuration, noInstancesInProgress,
 } from './src/lib/instances.js';
 
 let pass = 0, fail = 0;
@@ -285,6 +285,20 @@ console.log('\nextendDuration — extending a SECOND time while missed again rec
   });
   ok('second missed-extension recomputes absolutely: new target is 210 min, an effective +150 min total, not +10 on top of +5',
     60 * 60_000 + i.durationExtensionMs === 210 * 60_000);
+}
+
+console.log('\nnoInstancesInProgress — completion tally auto-reset\'s "is the recipe idle" check:');
+{
+  ok('true when there are no instances at all', noInstancesInProgress([]));
+  ok('true when every instance is completed', noInstancesInProgress([
+    { status: 'completed' }, { status: 'completed' },
+  ]));
+  ok('false when any instance is running', noInstancesInProgress([
+    { status: 'completed' }, { status: 'running' },
+  ]) === false);
+  ok('false when any instance is paused (paused still counts as in-progress)', noInstancesInProgress([
+    { status: 'paused' },
+  ]) === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

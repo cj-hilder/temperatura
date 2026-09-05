@@ -7,8 +7,9 @@ import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer } = engine;
+  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer, wrapUpRecipe } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
+  const [wrapUpConfirm, setWrapUpConfirm] = useState(false);
   const closeEditor = async () => {
     await refresh();
     setEditing(false);
@@ -85,6 +86,16 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
     if (instance.status === "completed") continue;
     (instancesByStep[instance.stepId] ??= []).push(instance);
   }
+  const completionTicks = entry?.completionTicks ?? {};
+
+  const handleClearTallies = async () => {
+    await app.clearCompletionTicks(recipe.id);
+    await refresh();
+  };
+  const handleWrapUp = async () => {
+    await wrapUpRecipe(recipe.id);
+    setWrapUpConfirm(false);
+  };
 
   return (
     <div style={t.page}>
@@ -151,10 +162,11 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
       {recipe.steps.length === 0 && <p style={{ padding: "0 16px", color: t.colors.textMuted }}>No steps yet — tap ✎ to add one.</p>}
       {recipe.steps.map((step) => {
         const running = instancesByStep[step.id] ?? [];
+        const ticks = completionTicks[step.id] ?? 0;
         return (
           <div
             key={step.id}
-            style={{ ...t.card, cursor: "pointer" }}
+            style={{ ...t.card, position: "relative", cursor: "pointer" }}
             onClick={() => navigate({ view: "step", recipeId: recipe.id, stepId: step.id })}
           >
             <div style={{ fontWeight: 700 }}>{step.name}</div>
@@ -166,9 +178,43 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
               {step.tempBand ? ` · ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
               {running.length > 0 ? ` · ${running.length} in progress` : ""}
             </div>
+            {ticks > 0 && (
+              <div
+                title={`Completed ${ticks} time${ticks === 1 ? "" : "s"}`}
+                style={{ position: "absolute", right: 10, bottom: 8, fontSize: 11, letterSpacing: 1, color: t.colors.textMuted }}
+              >
+                {"✓".repeat(ticks)}
+              </div>
+            )}
           </div>
         );
       })}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "16px" }}>
+        <button style={t.secondaryButton} onClick={handleClearTallies}>Clear all tallies</button>
+        <button
+          style={{ ...t.secondaryButton, ...(instances.length === 0 ? t.disabledButton : null) }}
+          disabled={instances.length === 0}
+          onClick={() => setWrapUpConfirm(true)}
+        >
+          Wrap up this recipe
+        </button>
+      </div>
+
+      {wrapUpConfirm && (
+        <div style={t.overlay} onClick={() => setWrapUpConfirm(false)}>
+          <div style={{ ...t.overlayCard, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Wrap up this recipe?</h3>
+            <p style={{ fontSize: 13.5, color: t.colors.textMuted }}>
+              This will complete {instances.length} running step{instances.length === 1 ? "" : "s"}.
+            </p>
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button style={{ ...t.secondaryButton, flex: 1 }} onClick={() => setWrapUpConfirm(false)}>Cancel</button>
+              <button style={{ ...t.dangerButton, flex: 1 }} onClick={handleWrapUp}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

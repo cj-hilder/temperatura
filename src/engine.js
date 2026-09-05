@@ -80,6 +80,9 @@ export function useAppEngine() {
     const openIds = await app.listOpenRecipeIds();
     const recipes = (await Promise.all(openIds.map((id) => app.getRecipe(id)))).filter(Boolean);
     const allInstances = await app.store.listInstances();
+    const ticksByRecipeId = Object.fromEntries(
+      await Promise.all(recipes.map(async (r) => [r.id, await app.getCompletionTicks(r.id)]))
+    );
     recipesRef.current = Object.fromEntries(recipes.map((r) => [r.id, r]));
     setOpenRecipes(
       recipes.map((recipe) => ({
@@ -90,6 +93,7 @@ export function useAppEngine() {
         instances: allInstances
           .filter((i) => i.recipeId === recipe.id && i.status !== "completed")
           .sort((a, b) => a.startedAt - b.startedAt),
+        completionTicks: ticksByRecipeId[recipe.id],
       }))
     );
     setClaimHolderId(await app.getClaimHolderId());
@@ -282,6 +286,25 @@ export function useAppEngine() {
         if (instance.status !== "completed") await stopAllSounding(instance.id);
       }
       await app.closeRecipe(recipeId);
+      await refresh();
+    },
+    [app, refresh]
+  );
+
+  // "Wrap up this recipe": completes every running instance without closing
+  // the recipe or touching anything already completed/not-started. Goes
+  // through app.completeInstance (not store.closeRecipe's raw status flip,
+  // which closeRecipe above uses) so each one still ticks its step's tally
+  // exactly as a manual Complete would.
+  const wrapUpRecipe = useCallback(
+    async (recipeId) => {
+      const instances = await app.store.listInstancesForRecipe(recipeId);
+      for (const instance of instances) {
+        if (instance.status !== "completed") {
+          await stopAllSounding(instance.id);
+          await app.completeInstance(instance.id);
+        }
+      }
       await refresh();
     },
     [app, refresh]
@@ -517,6 +540,7 @@ export function useAppEngine() {
     resolveEarliestGlobal,
     completeInstance,
     closeRecipe,
+    wrapUpRecipe,
     pendingExtend,
     requestExtend,
     confirmExtend,

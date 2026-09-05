@@ -81,7 +81,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   const nextStep = stepIndex < recipe.steps.length - 1 ? recipe.steps[stepIndex + 1] : null;
 
   const handleStart = async () => {
-    await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs });
+    await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs, isFirstStep: stepIndex === 0 });
     await refresh();
   };
   const handlePauseResume = async () => {
