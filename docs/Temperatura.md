@@ -277,7 +277,9 @@ If several alarms are sounding, each has its own notification and its own tag, s
 
 ## In-band accumulation
 
-If the BLE connection is lost, or the thermometer is claimed by another instance after starting to accumulate in-band time, then the timer continues with the last value it had. That is, it continues to count in-band if the last data point was in-band, and vice versa. If an instance never has any temperature data (no BLE, other instance has thermometer throughout) then it accumulates in-band time from the start (assume in-band if no data available, assume last data remains valid if data flow stops) 
+If the BLE connection is lost, or the thermometer is claimed by another instance after starting to accumulate in-band time, then the timer continues with the last value it had. That is, it continues to count in-band if the last data point was in-band, and vice versa. If an instance never has any temperature data (no BLE, other instance has thermometer throughout) then it accumulates in-band time from the start (assume in-band if no data available, assume last data remains valid if data flow stops)
+
+The "assume in-band if no data available" default only applies to an instance that holds no claim at all (or never gets one) — it does not apply to a claimed instance before its very first real measurement. A claimed instance is actively expecting a reading any moment (the connection already exists), and on real hardware the first packet after claiming can take a few seconds to arrive; assuming in-band for that gap silently hands out real elapsed time — and permanently marks the run as "≈ estimated" — for a step that was never actually without a thermometer. A claimed instance therefore counts nothing at all (shows "waiting for temperature") until its first real measurement, then behaves exactly as measured data dictates from then on. Once a claimed instance has been measured at least once, every later gap is an ordinary continuation per the paragraph above, regardless of claim.
 
 #### Measured vs assumed time
 

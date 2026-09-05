@@ -18,8 +18,13 @@ export function startInstance({ id, recipeId, stepId, stepAlarmDefs }, now) {
     accumulatedInBandMs: 0,
     lastSampleAt: now,
     // "assume in-band if no data available" — the starting assumption with no
-    // observations yet is exactly the no-data case.
+    // observations yet is exactly the no-data case. Only actually applied
+    // before the FIRST real measurement when this instance holds no claim —
+    // see advanceInBand's everMeasured/claimed handling for why a claimed
+    // instance's very first, still-unmeasured tick(s) must NOT default to
+    // this optimistic guess.
     lastKnownInBand: true,
+    everMeasured: false,
     latchedEstimate: false,
     completedAt: null,
     // A temporary, per-instance addition to the step's own duration — see
@@ -59,6 +64,7 @@ export function restartInstance(instance, stepAlarmDefs, now) {
     accumulatedInBandMs: 0,
     lastSampleAt: now,
     lastKnownInBand: true,
+    everMeasured: false,
     latchedEstimate: false,
     completedAt: null,
     // A restart is a fresh run of the step — any temporary extension from a
@@ -147,20 +153,44 @@ export function elapsedTotalMs(instance, now) {
  * (there's no live connection yet), and the arithmetic falls out correctly —
  * no separate recovery path needed.
  *
+ * The one case that ISN'T a carried-forward continuation is the very first
+ * evaluation of a claimed instance's life, before it has ever been measured
+ * even once: `lastKnownInBand`'s bootstrap value of `true` exists so a step
+ * with NO thermometer at all (unclaimed, or genuinely no BLE ever) doesn't
+ * sit frozen forever — but a CLAIMED instance is actively expecting a real
+ * reading any moment (the connection is already up), and defaulting to
+ * "assume in-band" for however long that takes (observed: several seconds,
+ * on real BLE hardware) silently hands out real elapsed time — and, worse,
+ * permanently latches the "≈ estimated" flag — for a step that's about to be
+ * fully measured and was never actually without a thermometer. `everMeasured`
+ * exists solely to tell these two apart: before the first-ever measurement,
+ * a CLAIMED instance assumes out-of-band (not counting, "waiting for
+ * temperature") instead of the spec's optimistic default; an UNCLAIMED one
+ * still gets that default immediately, unchanged. Once a real measurement
+ * has happened even once, `everMeasured` is permanently true and every
+ * later gap is a genuine continuation, handled exactly as before regardless
+ * of claim.
+ *
  * Frozen entirely while paused, per spec ("In-band accumulation pauses").
  *
- * @param {object} sample - { measured: boolean, inBand: boolean }
+ * @param {object} sample - { measured: boolean, inBand: boolean, claimed: boolean }
  */
-export function advanceInBand(instance, { measured, inBand }, now) {
+export function advanceInBand(instance, { measured, inBand, claimed }, now) {
   if (instance.status !== "running") return instance;
 
   const elapsed = Math.max(0, now - instance.lastSampleAt);
-  const effectiveInBand = measured ? inBand : instance.lastKnownInBand;
+  const everMeasured = instance.everMeasured || measured;
+  const effectiveInBand = measured
+    ? inBand
+    : everMeasured
+      ? instance.lastKnownInBand
+      : !claimed; // never-yet-measured: optimistic only when no reading is expected at all
 
   return {
     ...instance,
     lastSampleAt: now,
     lastKnownInBand: effectiveInBand,
+    everMeasured,
     accumulatedInBandMs: instance.accumulatedInBandMs + (effectiveInBand ? elapsed : 0),
     // Latches permanently once any in-band time was accumulated while assumed
     // — even if the instance later regains the probe.

@@ -76,6 +76,11 @@ console.log('\nLatched estimate flag survives a restart:');
 
   const app1 = mkApp();
   const recipe = await app1.createRecipe({ name: 'Tofu', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  // A dummy instance takes the claim first, so inst-3 genuinely never holds
+  // it — starting inst-3 alone would auto-acquire the claim (first instance
+  // always does), which would defeat the point: the "assumes in-band from
+  // the start" default only applies pre-measurement when unclaimed.
+  await app1.startInstance({ id: 'inst-dummy', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
   await app1.startInstance({ id: 'inst-3', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
 
   // Never claimed by this instance, so every tick is "assumed" — this
@@ -211,6 +216,46 @@ console.log('\nExtend: temporary per-instance duration extension, end to end thr
   await app.extendDuration('inst-extend', 1000);
   const twiceExtended = await app.store.getInstance('inst-extend');
   ok('a second extension adds on top of the first', twiceExtended.durationExtensionMs === 4000);
+}
+
+console.log('\nStarting a claimed instance well outside the band does not clock up erroneous in-band time:');
+{
+  // The reported bug: on real hardware, the thermometer already being
+  // claimed and connected doesn't mean the FIRST packet has arrived yet —
+  // BLE connect/discover/first-notification can take a few real seconds.
+  // During that gap, an instance must not assume in-band just because it
+  // hasn't been told otherwise yet.
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Ferment', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const tempBand = { lowC: 20, highC: 30 };
+  const duration = { ms: 60_000, kind: 'inBand' };
+
+  await app.startInstance({ id: 'inst-outside', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
+  ok('auto-acquires the claim as the only instance', await app.getClaimHolderId() === 'inst-outside');
+
+  // A few ticks with no packet yet — connection still warming up.
+  for (let i = 0; i < 4; i++) {
+    clock += 1000;
+    await app.tick('inst-outside', {
+      stepAlarmDefs: [], hasTempInterest: true, tempBand, duration,
+      tempC: null, msSinceLastPacket: null, readingValid: false,
+    });
+  }
+  let instance = await app.store.getInstance('inst-outside');
+  ok('claimed but never yet measured: zero in-band time accumulated', instance.accumulatedInBandMs === 0);
+  ok('not latched either — this was never actually without a thermometer', instance.latchedEstimate === false);
+
+  // The first real packet arrives — well outside the band, matching the bug report.
+  clock += 1000;
+  await app.tick('inst-outside', {
+    stepAlarmDefs: [], hasTempInterest: true, tempBand, duration,
+    tempC: 5, msSinceLastPacket: 100, readingValid: true,
+  });
+  instance = await app.store.getInstance('inst-outside');
+  ok('first real (out-of-band) measurement: still zero accumulated — no leftover erroneous time', instance.accumulatedInBandMs === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

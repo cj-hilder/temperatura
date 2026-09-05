@@ -103,6 +103,36 @@ console.log('\nIn-band accumulation under every provenance state:');
   i5 = advanceInBand(i5, { measured: false, inBand: false }, 4000); // first-ever evaluation, no data yet
   ok('no data ever: assumes in-band from the start', i5.accumulatedInBandMs === 4000);
   ok('no data ever: latches immediately', i5.latchedEstimate === true);
+
+  // Claimed but not yet measured (a live connection exists, the first real
+  // reading just hasn't arrived yet) — must NOT assume in-band, unlike the
+  // unclaimed case above. Bug: starting a step well outside the band was
+  // clocking up several seconds of in-band time before the first real
+  // reading corrected it.
+  let i6 = startInstance({ id: 'p6', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  i6 = advanceInBand(i6, { measured: false, inBand: false, claimed: true }, 3000);
+  ok('claimed but never yet measured: does NOT assume in-band', i6.accumulatedInBandMs === 0);
+  ok('claimed but never yet measured: does not latch either', i6.latchedEstimate === false);
+
+  // Once the first real measurement arrives (out of band, matching the bug
+  // report), it takes over immediately and correctly — no leftover
+  // erroneous accumulation from the unmeasured start.
+  i6 = advanceInBand(i6, { measured: true, inBand: false, claimed: true }, 5000);
+  ok('first real measurement (out of band) correctly accumulates nothing', i6.accumulatedInBandMs === 0);
+  ok('everMeasured is now true', i6.everMeasured === true);
+
+  // And once genuinely measured, a LATER gap is an ordinary continuation —
+  // claim status stops mattering, exactly like the assumed+counting case above.
+  i6 = advanceInBand(i6, { measured: true, inBand: true, claimed: true }, 6000); // now in band: +1000ms
+  i6 = advanceInBand(i6, { measured: false, inBand: false, claimed: true }, 8000); // lost data — carries forward "in band": +2000ms
+  ok('after real measurement, an unmeasured gap still carries forward normally', i6.accumulatedInBandMs === 3000);
+  ok('and still latches, same as any other post-measurement gap', i6.latchedEstimate === true);
+
+  // The unclaimed case is completely unaffected by everMeasured/claimed —
+  // still assumes in-band immediately, exactly as i5 above.
+  let i7 = startInstance({ id: 'p7', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  i7 = advanceInBand(i7, { measured: false, inBand: false, claimed: false }, 4000);
+  ok('unclaimed and never measured: still assumes in-band immediately', i7.accumulatedInBandMs === 4000);
 }
 
 console.log('\nOnce latched, the flag survives regaining the probe:');

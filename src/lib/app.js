@@ -156,7 +156,7 @@ export function createAppController(deps = {}) {
     const inBand = measured ? isInBand(tempC, tempBand) : instance.lastKnownInBand;
 
     const t = now();
-    const advanced = advanceInBand(instance, { measured, inBand }, t);
+    const advanced = advanceInBand(instance, { measured, inBand, claimed }, t);
     const running = advanced.status === "running";
     // Time/duration alarms must never disagree with the progress bar about
     // when a duration is reached, so they share its exact basis: an
