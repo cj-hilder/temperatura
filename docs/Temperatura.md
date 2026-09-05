@@ -148,13 +148,19 @@ Start, Pause/resume, Restart, Complete, Duplicate, Extend
 
 Available on the step page next to the duration, whenever the step has a duration and an instance is in progress (running or paused). Also offered as an action on a duration-reached alarm’s notification, alongside Silence.
 
-Tapping Extend: silences the duration-reached alarm if it is currently sounding, then opens a dialog asking how many minutes to add. The dialog explains: “This is a temporary extension — if you want to extend the duration permanently you need to edit the recipe step.”
+Tapping Extend: silences the duration-reached alarm if it is currently sounding, then opens a dialog asking how much time to add, using the standard time-entry control below. The dialog explains: “This is a temporary extension — if you want to extend the duration permanently you need to edit the recipe step.”
 
 * The extension applies to this one instance only. The recipe step’s own duration is never changed, and no other instance of the same step is affected.  
 * Extending is cumulative — extending twice adds both amounts together.  
 * If the duration-reached alarm already fired, extending re-arms it so it can fire again once the new, later duration is reached. Elapsed time itself is untouched — extending only moves the target further away, the same way it never resets when paused and resumed.  
 * Restarting the instance clears any extension, the same way it clears everything else about the previous run.  
 * From the notification: tapping Extend brings the app to the foreground so the dialog can actually be answered, unlike Silence which needs no app window at all.
+
+#### Time entry
+
+Every duration a user types anywhere in the app — a step's duration, a time alarm's trigger point into the step, a time alarm's repeat interval, and how much time to add on Extend — uses one standard control: three boxes for hours, minutes, and seconds, separated by colons, each showing `00` at zero. This replaced an earlier mixture of ad hoc minutes-only and seconds-only fields across different screens.
+
+This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Settings) — those are short audio parameters measured in a handful of seconds, not a step-timing duration, and stay plain seconds fields.
 
 #### Step components
 

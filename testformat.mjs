@@ -1,4 +1,4 @@
-import { formatTemperature, formatDuration, formatElapsed, formatRemaining } from './src/lib/format.js';
+import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs } from './src/lib/format.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -34,6 +34,27 @@ console.log('\nformatRemaining:');
   ok('zero remaining', formatRemaining(0) === '0:00');
   ok('overdue renders with a + prefix', formatRemaining(-65_000) === '+1:05');
   ok('null renders empty', formatRemaining(null) === '');
+}
+
+console.log('\nmsToHMS:');
+{
+  ok('zero', JSON.stringify(msToHMS(0)) === JSON.stringify({ h: 0, m: 0, s: 0 }));
+  ok('seconds only', JSON.stringify(msToHMS(45_000)) === JSON.stringify({ h: 0, m: 0, s: 45 }));
+  ok('minutes and seconds', JSON.stringify(msToHMS(5 * 60_000 + 30_000)) === JSON.stringify({ h: 0, m: 5, s: 30 }));
+  ok('hours, minutes, and seconds', JSON.stringify(msToHMS(2 * 3_600_000 + 5 * 60_000 + 3_000)) === JSON.stringify({ h: 2, m: 5, s: 3 }));
+  ok('rounds to the nearest whole second', JSON.stringify(msToHMS(1_499)) === JSON.stringify({ h: 0, m: 0, s: 1 }));
+  ok('negative clamps to zero', JSON.stringify(msToHMS(-5000)) === JSON.stringify({ h: 0, m: 0, s: 0 }));
+  ok('null treated as zero', JSON.stringify(msToHMS(null)) === JSON.stringify({ h: 0, m: 0, s: 0 }));
+}
+
+console.log('\nhmsToMs:');
+{
+  ok('zero', hmsToMs({ h: 0, m: 0, s: 0 }) === 0);
+  ok('seconds only', hmsToMs({ h: 0, m: 0, s: 45 }) === 45_000);
+  ok('minutes and seconds', hmsToMs({ h: 0, m: 5, s: 30 }) === 5 * 60_000 + 30_000);
+  ok('hours, minutes, and seconds', hmsToMs({ h: 2, m: 5, s: 3 }) === 2 * 3_600_000 + 5 * 60_000 + 3_000);
+  ok('missing fields default to zero', hmsToMs({ m: 5 }) === 5 * 60_000);
+  ok('round-trips through msToHMS', hmsToMs(msToHMS(7384_000)) === 7384_000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

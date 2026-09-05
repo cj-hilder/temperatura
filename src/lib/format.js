@@ -29,6 +29,24 @@ export function formatElapsed(totalMs) {
   return formatDuration(totalMs);
 }
 
+// The standard time-entry control's own conversion pair — every duration
+// entered anywhere in the app (a step's duration, a time alarm's trigger
+// point, a repeat interval, an Extend) goes through these two, so hours,
+// minutes and seconds always mean the same thing everywhere, unlike the
+// mixture of ad hoc minutes-only and seconds-only fields this replaced.
+export function msToHMS(ms) {
+  const totalSeconds = Math.max(0, Math.round((ms ?? 0) / 1000));
+  return {
+    h: Math.floor(totalSeconds / 3600),
+    m: Math.floor((totalSeconds % 3600) / 60),
+    s: totalSeconds % 60,
+  };
+}
+
+export function hmsToMs({ h, m, s }) {
+  return ((Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)) * 1000;
+}
+
 // Overdue (past the alarm/duration point) renders as "+H:MM:SS" rather than
 // an empty string — a step keeps running past its duration until Complete is
 // tapped, so "how far past" is meaningful, not an error state.

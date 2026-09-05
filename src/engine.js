@@ -205,9 +205,9 @@ export function useAppEngine() {
   );
 
   const confirmExtend = useCallback(
-    async (extraMinutes) => {
+    async (extraMs) => {
       if (!pendingExtend) return;
-      await app.extendDuration(pendingExtend.instanceId, extraMinutes * 60_000);
+      await app.extendDuration(pendingExtend.instanceId, extraMs);
       setPendingExtend(null);
       await refresh();
     },

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import TimeInput from "./TimeInput.jsx";
 import * as t from "./theme.js";
 
 const MIN_MS = 60_000;
@@ -26,7 +27,7 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
   const [name, setName] = useState(step.name);
   const [description, setDescription] = useState(step.description);
   const [durationKind, setDurationKind] = useState(step.duration?.kind ?? "none");
-  const [durationMin, setDurationMin] = useState(step.duration ? step.duration.ms / MIN_MS : 30);
+  const [durationMs, setDurationMs] = useState(step.duration ? step.duration.ms : 30 * MIN_MS);
   const [tempBandOn, setTempBandOn] = useState(!!step.tempBand);
   const [lowC, setLowC] = useState(step.tempBand?.lowC ?? 20);
   const [highC, setHighC] = useState(step.tempBand?.highC ?? 30);
@@ -55,7 +56,7 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
 
   const save = async () => {
     setError(null);
-    const duration = durationKind === "none" ? null : { ms: Math.round(durationMin * MIN_MS), kind: durationKind };
+    const duration = durationKind === "none" ? null : { ms: durationMs, kind: durationKind };
     const tempBand = tempBandOn ? { lowC: Number(lowC), highC: Number(highC) } : null;
     const updatedStep = {
       ...step,
@@ -109,7 +110,7 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
         </select>
         {durationKind !== "none" && (
           <div style={{ marginTop: 6 }}>
-            <input style={{ ...t.input, width: 100 }} type="number" min={1} value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))} /> minutes
+            <TimeInput valueMs={durationMs} onChangeMs={setDurationMs} />
           </div>
         )}
 
@@ -153,14 +154,8 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
           <div key={a.id} style={{ ...t.card, margin: "0 0 8px" }}>
             <input style={t.input} placeholder="Name" value={a.name} onChange={(e) => updateTimeAlarm(i, { name: e.target.value })} />
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-              <input
-                style={{ ...t.input, width: 80 }}
-                type="number"
-                min={0}
-                value={a.atMs / MIN_MS}
-                onChange={(e) => updateTimeAlarm(i, { atMs: Number(e.target.value) * MIN_MS })}
-              />
-              <span>min into the step</span>
+              <TimeInput valueMs={a.atMs} onChangeMs={(ms) => updateTimeAlarm(i, { atMs: ms })} />
+              <span>into the step</span>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
               <input type="checkbox" checked={a.repeat} onChange={(e) => updateTimeAlarm(i, { repeat: e.target.checked, intervalMs: e.target.checked ? a.intervalMs ?? 5 * MIN_MS : null })} />
@@ -168,14 +163,8 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
             </label>
             {a.repeat && (
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-                <input
-                  style={{ ...t.input, width: 80 }}
-                  type="number"
-                  min={1}
-                  value={a.intervalMs / MIN_MS}
-                  onChange={(e) => updateTimeAlarm(i, { intervalMs: Number(e.target.value) * MIN_MS })}
-                />
-                <span>min interval</span>
+                <TimeInput valueMs={a.intervalMs} onChangeMs={(ms) => updateTimeAlarm(i, { intervalMs: ms })} />
+                <span>interval</span>
               </div>
             )}
             <label style={{ ...t.label, marginTop: 6 }}>Alarm theme</label>
