@@ -114,6 +114,10 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   };
 
   const claimed = !!instance && instance.id === claimHolderId;
+  // Mirrors acquireClaimOnStart (instances.js): Start only auto-claims when
+  // nothing currently holds it, so that's also when it's worth showing the
+  // reading here ahead of starting.
+  const wouldAutoClaim = !instance && claimHolderId == null;
   const progress = instance ? computeStepProgress(instance, step, engine, Date.now()) : null;
   // computeStepProgress only returns a figure when the step has a set
   // duration — spec: no progress bar at all without one. A running instance
@@ -148,7 +152,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         </button>
       </div>
 
-      {connectionState === "connected" && claimed && latestSample && <CurrentTemperatureLine sample={latestSample} />}
+      {connectionState === "connected" && (claimed || wouldAutoClaim) && latestSample && <CurrentTemperatureLine sample={latestSample} />}
 
       {instances.length > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: 8 }}>
