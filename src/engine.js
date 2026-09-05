@@ -187,19 +187,42 @@ export function useAppEngine() {
     [app, refresh]
   );
 
-  // "Extend" (step page button or a notification's Extend action): silence
-  // the duration-reached alarm if it's sounding, then open the dialog.
-  // Nothing about the duration itself changes yet — that's confirmExtend's
-  // job, so a cancelled dialog leaves the instance untouched.
+  // Clears a missed alarm's outstanding status. No stopAndForget needed — a
+  // missed alarm has no live voice (it stopped sounding, and thus stopped
+  // being voiced, the moment it went missed).
+  const dismissAlarm = useCallback(
+    async (instanceId, alarmId) => {
+      await app.dismissAlarm(instanceId, alarmId);
+      await refresh();
+    },
+    [app, refresh]
+  );
+
+  // "Extend" (step page button or a notification's Extend action): resolve
+  // the duration-reached alarm if it's currently outstanding, then open the
+  // dialog. Nothing about the duration itself changes yet — that's
+  // confirmExtend's job, so a cancelled dialog leaves the instance untouched.
+  // A MISSED duration alarm has nothing sounding to silence — it needs
+  // dismissing instead, which is also the resolution its notification's
+  // (eventual) Dismiss action would use.
   const requestExtend = useCallback(
     async (instanceId) => {
       const instance = await app.store.getInstance(instanceId);
       if (!instance) return;
       const alarmId = durationAlarmId(instance.stepId);
-      await app.silenceAlarm(instanceId, alarmId);
+      // Captured BEFORE dismissing/silencing below, which is what actually
+      // clears this flag — confirmExtend must know whether the alarm WAS
+      // missed at the moment Extend was tapped, since by the time the user
+      // answers the dialog, alarmState itself no longer says so.
+      const wasMissed = !!instance.alarmState[alarmId]?.missed;
+      if (wasMissed) {
+        await app.dismissAlarm(instanceId, alarmId);
+      } else {
+        await app.silenceAlarm(instanceId, alarmId);
+      }
       stopAndForget(instanceId, alarmId);
       await refresh();
-      setPendingExtend({ instanceId });
+      setPendingExtend({ instanceId, wasMissed });
     },
     [app, refresh]
   );
@@ -207,7 +230,10 @@ export function useAppEngine() {
   const confirmExtend = useCallback(
     async (extraMs) => {
       if (!pendingExtend) return;
-      await app.extendDuration(pendingExtend.instanceId, extraMs);
+      const instance = await app.store.getInstance(pendingExtend.instanceId);
+      const recipe = recipesRef.current[instance?.recipeId];
+      const step = recipe?.steps.find((s) => s.id === instance.stepId);
+      await app.extendDuration(pendingExtend.instanceId, extraMs, step.duration, pendingExtend.wasMissed);
       setPendingExtend(null);
       await refresh();
     },
@@ -342,6 +368,10 @@ export function useAppEngine() {
         const themesById = new Map((await app.store.listAlarmThemes()).map((t) => [t.id, t]));
         const dataLossThemeId = await app.getDataLossAlarmTheme();
         const themeIds = { dataLossThemeId, defaultThemeId: DEFAULT_THEME_ID };
+        // The data-loss alarm has no step-owned def to carry its own
+        // silenceAfterMs (see alarms.js) — resolve it here, once per cycle,
+        // same as every other once-per-cycle theme read above.
+        const { silenceAfterMs: dataLossSilenceAfterMs } = resolvePlaybackParams(themesById.get(dataLossThemeId));
 
         const allSounding = [];
         for (const instance of active) {
@@ -352,7 +382,14 @@ export function useAppEngine() {
             const step = recipe?.steps.find((s) => s.id === instance.stepId);
             if (!recipe || !step) continue;
 
-            const stepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: instance.durationExtensionMs || 0 });
+            const rawStepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: instance.durationExtensionMs || 0 });
+            // alarms.js reads silenceAfterMs straight off each def (it stays
+            // theme-agnostic) — resolved here from the same themesById map
+            // already used for vibrate, one def at a time.
+            const stepAlarmDefs = rawStepAlarmDefs.map((def) => ({
+              ...def,
+              silenceAfterMs: resolvePlaybackParams(themesById.get(themeIdForAlarmId(def.id, rawStepAlarmDefs, themeIds))).silenceAfterMs,
+            }));
             const hasTempInterest = !!(step.tempBand || step.tempAlarms.length > 0);
             const result = await app.tick(instance.id, {
               stepAlarmDefs,
@@ -362,6 +399,7 @@ export function useAppEngine() {
               tempC,
               msSinceLastPacket,
               readingValid,
+              dataLossSilenceAfterMs,
             });
 
             const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
@@ -425,6 +463,7 @@ export function useAppEngine() {
     claimHolderId,
     openRecipes,
     silenceAlarm,
+    dismissAlarm,
     silenceEarliestGlobal,
     completeInstance,
     closeRecipe,

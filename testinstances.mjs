@@ -230,5 +230,62 @@ console.log('\nextendDuration — a temporary, per-instance addition to the step
   ok('extendDuration works with no id to re-arm at all', withoutId.durationExtensionMs === i.durationExtensionMs + 60000);
 }
 
+console.log('\nextendDuration — a normal (not missed) rearm also clears missed on the target alarm:');
+{
+  let i = startInstance({ id: 'i9b', recipeId: 'r1', stepId: 's1', stepAlarmDefs: [] }, 0);
+  i.alarmState['s1-duration-reached'] = { firedCount: 1, sounding: false, missed: true, firedAt: 12345 };
+  i = extendDuration(i, 60000, 's1-duration-reached');
+  ok('extending clears missed even on the ordinary (not-isMissed-flagged) path', i.alarmState['s1-duration-reached'].missed === false);
+}
+
+console.log('\nextendDuration — a MISSED duration alarm extends from now, not from the stale original target:');
+{
+  // The spec's own worked example: a duration reached long enough ago that
+  // silence-after has elapsed and it's sitting missed. Concretely: a 60-
+  // minute duration, now 120 minutes of elapsed time in (i.e. missed 60
+  // minutes ago), extended by 5 minutes. Naively adding 5 min to the
+  // original 60-min target (durationExtensionMs += 5min => new target 65
+  // min) would already be 55 minutes in the past — pointless. Extending
+  // "from now" instead must produce a target of 120+5 = 125 minutes, which
+  // is a total addition of 125-60 = 65 minutes — the spec's own "+5 min is
+  // effectively +65 min" example, exactly.
+  let i = startInstance({ id: 'i10', recipeId: 'r1', stepId: 's1', stepAlarmDefs: [] }, 0);
+  i.alarmState['s1-duration-reached'] = { firedCount: 1, sounding: false, missed: true, firedAt: 3_600_000 };
+
+  const originalDurationMs = 60 * 60_000; // 60 minutes
+  const currentTimeBasisMs = 120 * 60_000; // 120 minutes elapsed right now
+  const extraMs = 5 * 60_000; // +5 minutes requested
+
+  i = extendDuration(i, extraMs, 's1-duration-reached', { isMissed: true, originalDurationMs, currentTimeBasisMs });
+
+  ok('the effective addition is +65 minutes, not +5', i.durationExtensionMs === 65 * 60_000);
+  ok('the new target (original + extension) lands exactly extraMs ahead of currentTimeBasisMs',
+    originalDurationMs + i.durationExtensionMs === currentTimeBasisMs + extraMs);
+  ok('re-arms the alarm so it can fire again at the new target', i.alarmState['s1-duration-reached'].firedCount === 0 && i.alarmState['s1-duration-reached'].sounding === false);
+  ok('clears missed', i.alarmState['s1-duration-reached'].missed === false);
+}
+
+console.log('\nextendDuration — extending a SECOND time while missed again recomputes from now, not cumulatively with the first missed-extension:');
+{
+  let i = startInstance({ id: 'i11', recipeId: 'r1', stepId: 's1', stepAlarmDefs: [] }, 0);
+  i.alarmState['s1-duration-reached'] = { firedCount: 1, sounding: false, missed: true, firedAt: 0 };
+
+  // First missed-extend, per above: target becomes 65 minutes.
+  i = extendDuration(i, 5 * 60_000, 's1-duration-reached', {
+    isMissed: true, originalDurationMs: 60 * 60_000, currentTimeBasisMs: 60 * 60_000,
+  });
+  ok('first missed-extension: target is now +5 min from that moment (65 min)', i.durationExtensionMs === 5 * 60_000);
+
+  // It gets missed again, and much later (200 min in) is extended again by
+  // 10 min. This must land at 210 min total, NOT stack on top of the first
+  // extension's 65-min target.
+  i.alarmState['s1-duration-reached'] = { firedCount: 2, sounding: false, missed: true, firedAt: 65 * 60_000 };
+  i = extendDuration(i, 10 * 60_000, 's1-duration-reached', {
+    isMissed: true, originalDurationMs: 60 * 60_000, currentTimeBasisMs: 200 * 60_000,
+  });
+  ok('second missed-extension recomputes absolutely: new target is 210 min, an effective +150 min total, not +10 on top of +5',
+    60 * 60_000 + i.durationExtensionMs === 210 * 60_000);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

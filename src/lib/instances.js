@@ -95,7 +95,10 @@ export function setTag(instance, tag) {
  * A temporary addition to this ONE instance's duration — the step
  * definition (and every other instance of it) is untouched, per spec: this
  * is temporary, and a permanent change means editing the recipe step.
- * Cumulative: extending twice adds twice.
+ * Cumulative: extending twice adds twice — UNLESS the duration alarm is
+ * currently missed (see `isMissed` below), in which case cumulation would
+ * be pointless or actively wrong: the target it would extend is already in
+ * the past.
  *
  * The duration-reached alarm, if it already fired for the un-extended
  * duration, must be able to fire again once the new, later threshold is
@@ -107,16 +110,38 @@ export function setTag(instance, tag) {
  * @param {string} [durationAlarmIdToRearm] - the id to re-arm, e.g. from
  *   recipe.js's durationAlarmId(instance.stepId). Omit only if there's
  *   nothing to re-arm (defensive — the caller always has this in practice).
+ * @param {object} [opts]
+ * @param {boolean} [opts.isMissed] - is the duration alarm currently missed?
+ *   A missed duration alarm's target has already lapsed unacknowledged —
+ *   possibly a long time ago. Naively adding extraMs to that stale target
+ *   (the normal cumulative path) could still land in the past, making the
+ *   extension pointless. Per spec: extend FROM NOW instead.
+ * @param {number} [opts.originalDurationMs] - the step's own un-extended
+ *   duration (step.duration.ms) — only needed when isMissed.
+ * @param {number} [opts.currentTimeBasisMs] - the instance's current elapsed
+ *   time on the same clock the duration alarm itself fires against (running
+ *   time or in-band time, matching app.js's tick — see alarms.js's
+ *   timeBasisMs) — only needed when isMissed.
  */
-export function extendDuration(instance, extraMs, durationAlarmIdToRearm) {
+export function extendDuration(instance, extraMs, durationAlarmIdToRearm, { isMissed, originalDurationMs, currentTimeBasisMs } = {}) {
+  const priorExtension = instance.durationExtensionMs || 0;
+  // Missed: recompute durationExtensionMs so the new target
+  // (originalDurationMs + durationExtensionMs) lands exactly extraMs ahead
+  // of right now — not cumulative with whatever stale extension existed
+  // before, since that stale target is exactly the thing that's already
+  // been missed. Not missed: unchanged, ordinary cumulative behavior.
+  const addedMs =
+    isMissed && originalDurationMs != null && currentTimeBasisMs != null
+      ? currentTimeBasisMs + extraMs - originalDurationMs - priorExtension
+      : extraMs;
   const next = {
     ...instance,
-    durationExtensionMs: (instance.durationExtensionMs || 0) + extraMs,
+    durationExtensionMs: priorExtension + addedMs,
   };
   if (durationAlarmIdToRearm && next.alarmState[durationAlarmIdToRearm]) {
     next.alarmState = {
       ...next.alarmState,
-      [durationAlarmIdToRearm]: { firedCount: 0, sounding: false, firedAt: null },
+      [durationAlarmIdToRearm]: { ...next.alarmState[durationAlarmIdToRearm], firedCount: 0, sounding: false, missed: false, firedAt: null },
     };
   }
   return next;

@@ -3,8 +3,11 @@
 // which alarms fire, which re-arm, and which are currently sounding.
 //
 // Alarm definition shapes (owned by recipe.js, read-only here):
-//   { id, kind: "time"|"duration", name, atMs, repeat, intervalMs, theme }
-//   { id, kind: "temperature", name, thresholdC, direction: "heating"|"cooling", theme }
+//   { id, kind: "time"|"duration", name, atMs, repeat, intervalMs, theme, silenceAfterMs }
+//   { id, kind: "temperature", name, thresholdC, direction: "heating"|"cooling", theme, silenceAfterMs }
+// `silenceAfterMs` is resolved by the caller (engine.js, from the def's theme)
+// before stepAlarmDefs ever reaches this module — alarms.js stays theme-
+// agnostic, it only ever sees a plain number.
 // The data-loss alarm is not a step-defined alarm — it is implicit, evaluated
 // automatically whenever hasTempInterest is true, per the spec's "Bluetooth
 // specification" section (an app-wide alarm theme, not one the user creates).
@@ -12,6 +15,12 @@ export const DATA_LOSS_ALARM_ID = "__dataLoss";
 
 export const DEFAULT_DEADBAND_C = 2;
 export const DATA_LOSS_TIMEOUT_MS = 5000;
+// Fallback only — a real def/theme always supplies its own resolved
+// silenceAfterMs (see alarmPlayer.js's DEFAULT_SILENCE_AFTER_SECONDS, the
+// value this mirrors in ms for the one caller — evaluateAlarms's
+// dataLossSilenceAfterMs default — that has no theme lookup of its own to
+// fall back on).
+export const DEFAULT_SILENCE_AFTER_MS = 120_000;
 
 // Fresh runtime state for one alarm def, keyed off its kind. Shared by
 // initAlarmState (every def, at Start) and evaluateAlarms' fallback below (one
@@ -19,8 +28,8 @@ export const DATA_LOSS_TIMEOUT_MS = 5000;
 // case exists at all).
 function freshAlarmState(def) {
   return def.kind === "temperature"
-    ? { armed: true, sounding: false, firedAt: null, lastAboveThreshold: null }
-    : { firedCount: 0, sounding: false, firedAt: null }; // "time" and "duration" share this shape.
+    ? { armed: true, sounding: false, missed: false, firedAt: null, lastAboveThreshold: null }
+    : { firedCount: 0, sounding: false, missed: false, firedAt: null }; // "time" and "duration" share this shape.
 }
 
 // Fresh runtime state for a step's alarms — call at Start and at Restart
@@ -31,18 +40,28 @@ export function initAlarmState(stepAlarmDefs) {
   for (const def of stepAlarmDefs) {
     state[def.id] = freshAlarmState(def);
   }
-  state[DATA_LOSS_ALARM_ID] = { armed: true, sounding: false, firedAt: null };
+  state[DATA_LOSS_ALARM_ID] = { armed: true, sounding: false, missed: false, firedAt: null };
   return state;
 }
 
 // Restart re-arms time alarms only — temperature alarms keep their armed/
 // lastAboveThreshold state, since a restart doesn't change the thermometer.
+// `missed` is the one field cleared for EVERY kind including temperature: a
+// restart is a fresh run of the step, and a missed status left over from the
+// previous run has nothing to do with this one.
 export function reArmOnRestart(alarmState, stepAlarmDefs) {
   const next = { ...alarmState };
   for (const def of stepAlarmDefs) {
-    if (def.kind !== "temperature") {
-      next[def.id] = { firedCount: 0, sounding: false, firedAt: null };
-    }
+    // Same missing-entry fallback as evaluateAlarms uses (a def can be added
+    // to a running step via an edit, after alarmState was last built) —
+    // freshAlarmState, not a bare {missed:false}, so a temperature def that
+    // never had an entry gets a real armed/lastAboveThreshold baseline
+    // instead of undefined fields.
+    const prev = next[def.id] ?? freshAlarmState(def);
+    next[def.id] =
+      def.kind === "temperature"
+        ? { ...prev, missed: false }
+        : { firedCount: 0, sounding: false, missed: false, firedAt: null };
   }
   return next;
 }
@@ -68,12 +87,15 @@ export function reArmOnRestart(alarmState, stepAlarmDefs) {
  * @param {number|null} p.msSinceLastPacket - raw connectivity fact, or null if never connected
  * @param {boolean} p.measured - provenance's "Measured" (claimed, within timeout, reading valid)
  * @param {number|null} p.tempC - current raw reading, or null if unusable
- * @param {number} p.now - epoch ms; the only clock read, and only for firedAt
- *   ordering — everything else in this module is a pure function of its inputs.
- *   firedAt must be on one consistent clock across all three alarm kinds
- *   (temperature/time/data-loss) so "earliest to fire" comparisons are valid
- *   across kinds, not just within one — timeBasisMs and msSinceLastPacket
- *   are on different scales and would silently break that ordering.
+ * @param {number} p.now - epoch ms; the only clock read, used for firedAt
+ *   ordering AND for the missed-status timeout below. firedAt must be on one
+ *   consistent clock across all three alarm kinds (temperature/time/data-loss)
+ *   so "earliest to fire" comparisons are valid across kinds, not just within
+ *   one — timeBasisMs and msSinceLastPacket are on different scales and would
+ *   silently break that ordering.
+ * @param {number} [p.dataLossSilenceAfterMs] - the data-loss alarm's own
+ *   silence-after duration. It has no step-owned def to carry a per-alarm
+ *   `silenceAfterMs` field (see below), so it's passed separately.
  * @returns {{alarmState: object, newlyFired: Array, sounding: Array}}
  */
 export function evaluateAlarms({
@@ -87,6 +109,7 @@ export function evaluateAlarms({
   measured,
   tempC,
   now,
+  dataLossSilenceAfterMs = DEFAULT_SILENCE_AFTER_MS,
 }) {
   const next = { ...alarmState };
   const newlyFired = [];
@@ -99,31 +122,58 @@ export function evaluateAlarms({
     // like it existed since Start rather than crashing on undefined: this def
     // gets a fresh baseline now, same as reaching Start would have given it.
     const prev = next[def.id] ?? freshAlarmState(def);
+    const silenceAfterMs = def.silenceAfterMs ?? DEFAULT_SILENCE_AFTER_MS;
     if (def.kind === "temperature") {
-      next[def.id] = evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired);
+      next[def.id] = applyMissedTransition(
+        evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired),
+        silenceAfterMs,
+        now
+      );
     } else if (isRunning) {
-      next[def.id] = evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired);
+      next[def.id] = applyMissedTransition(
+        evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired),
+        silenceAfterMs,
+        now
+      );
     }
   }
 
-  next[DATA_LOSS_ALARM_ID] = evaluateDataLossAlarm(
-    next[DATA_LOSS_ALARM_ID],
-    claimed,
-    hasTempInterest,
-    msSinceLastPacket,
-    now,
-    newlyFired
+  next[DATA_LOSS_ALARM_ID] = applyMissedTransition(
+    evaluateDataLossAlarm(
+      next[DATA_LOSS_ALARM_ID],
+      claimed,
+      hasTempInterest,
+      msSinceLastPacket,
+      now,
+      newlyFired
+    ),
+    dataLossSilenceAfterMs,
+    now
   );
 
   const sounding = soundingInFireOrder(next);
   return { alarmState: next, newlyFired, sounding };
 }
 
+// An alarm left sounding for silenceAfterMs with nobody acknowledging it goes
+// to "missed" — audio and vibration stop (it simply falls out of `sounding`,
+// which is all the tick loop and notify router look at to decide what's
+// currently making noise), but the alarm stays outstanding until dismissed
+// rather than quietly going back to idle. Wall-clock based (now - firedAt),
+// so it applies the same whether the instance is running or paused — an
+// alarm nobody answered doesn't care whether the step itself is paused.
+function applyMissedTransition(state, silenceAfterMs, now) {
+  if (state.sounding && state.firedAt != null && now - state.firedAt >= silenceAfterMs) {
+    return { ...state, sounding: false, missed: true };
+  }
+  return state;
+}
+
 function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
   if (!measured || tempC == null) return prev; // no live data — frozen, no crossing detection
 
   const isAbove = tempC > def.thresholdC;
-  let { armed, sounding, firedAt, lastAboveThreshold } = prev;
+  let { armed, sounding, missed, firedAt, lastAboveThreshold } = prev;
 
   if (lastAboveThreshold === null) {
     // First observation establishes a baseline — never fires on this sample,
@@ -135,8 +185,16 @@ function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
   const crossedDown = lastAboveThreshold === true && isAbove === false;
   const fires = def.direction === "heating" ? crossedUp : crossedDown;
 
+  // A fresh crossing fires and re-sounds even if the PREVIOUS occurrence is
+  // still sounding or sitting missed-and-undismissed — there is only one
+  // state slot per alarm id (no history of occurrences), so this fire
+  // naturally replaces it (sounding:true, missed:false), which is exactly
+  // "retriggering dismisses the earlier occurrence": the user would rather
+  // be alerted to the new crossing than have it silently swallowed because
+  // they hadn't gotten around to dismissing the old one.
   if (fires && armed) {
     sounding = true;
+    missed = false;
     firedAt = now;
     armed = false;
     newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
@@ -151,40 +209,51 @@ function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
     if (reArmed) armed = true;
   }
 
-  return { armed, sounding, firedAt, lastAboveThreshold: isAbove };
+  return { armed, sounding, missed, firedAt, lastAboveThreshold: isAbove };
 }
 
 function evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired) {
-  let { firedCount, sounding } = prev;
-  if (sounding) return prev; // already sounding — no new fire until silenced
-
+  const { firedCount } = prev;
+  // No "already sounding" guard here — a repeating alarm's next interval
+  // firing must retrigger (and so implicitly dismiss, by replacing this
+  // alarm id's one state slot) a previous occurrence that's still sounding
+  // OR sitting missed-and-undismissed: the whole point of "repeating" is
+  // that the user doesn't want to miss the NEXT interval just because they
+  // hadn't gotten around to acknowledging the last one. A one-shot alarm
+  // (repeat: false, which the duration-reached alarm always is) can't
+  // refire regardless — canFireAgain below is false the instant firedCount
+  // leaves 0, independent of sounding/missed state.
   const nextThresholdMs = def.atMs + firedCount * (def.repeat ? def.intervalMs : 0);
   const canFireAgain = def.repeat || firedCount === 0;
 
   if (canFireAgain && timeBasisMs >= nextThresholdMs) {
     newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
-    return { firedCount: firedCount + 1, sounding: true, firedAt: now };
+    return { firedCount: firedCount + 1, sounding: true, missed: false, firedAt: now };
   }
   return prev;
 }
 
 function evaluateDataLossAlarm(prev, claimed, hasTempInterest, msSinceLastPacket, now, newlyFired) {
-  let { armed, sounding, firedAt } = prev;
+  let { armed, sounding, missed, firedAt } = prev;
   const applies = claimed && hasTempInterest;
 
-  // Any packet arrival re-arms it — a fresh loss episode gets its own alert.
+  // Any packet arrival re-arms it — a fresh loss episode gets its own alert,
+  // same re-arm-then-retrigger shape as a temperature alarm: a NEW loss
+  // episode fires and re-sounds even over a still-sounding or still-missed
+  // earlier one, replacing it (see evaluateTemperatureAlarm's comment).
   if (msSinceLastPacket != null && msSinceLastPacket < DATA_LOSS_TIMEOUT_MS) {
     armed = true;
   }
 
   if (applies && armed && msSinceLastPacket != null && msSinceLastPacket >= DATA_LOSS_TIMEOUT_MS) {
     sounding = true;
+    missed = false;
     firedAt = now;
     armed = false;
     newlyFired.push({ id: DATA_LOSS_ALARM_ID, kind: "dataLoss", name: "Data loss", theme: null });
   }
 
-  return { armed, sounding, firedAt };
+  return { armed, sounding, missed, firedAt };
 }
 
 function soundingInFireOrder(alarmState) {
@@ -218,6 +287,22 @@ export function silenceById(alarmState, alarmId) {
   return {
     alarmState: { ...alarmState, [alarmId]: { ...alarmState[alarmId], sounding: false } },
     silencedId: alarmId,
+  };
+}
+
+// Clears a missed alarm's outstanding status. Distinct from silencing — a
+// missed alarm has nothing currently sounding to silence, it just needs
+// acknowledging so it can go back to idle. A repeating time alarm, a
+// temperature alarm, or the data-loss alarm will all clear this on their own
+// the moment they next retrigger (see their evaluators above) — this is for
+// dismissing it explicitly beforehand, and is the ONLY way to clear a
+// one-shot time alarm or the duration-reached alarm, since those never
+// retrigger on their own.
+export function dismissById(alarmState, alarmId) {
+  if (!alarmState[alarmId]?.missed) return { alarmState, dismissedId: null };
+  return {
+    alarmState: { ...alarmState, [alarmId]: { ...alarmState[alarmId], missed: false } },
+    dismissedId: alarmId,
   };
 }
 

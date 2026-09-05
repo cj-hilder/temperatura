@@ -8,6 +8,9 @@
 // backgrounding on this platform (see useKeepAlive.js).
 
 export const MAX_SOUND_SECONDS = 5;
+// How long an alarm sounds unanswered before going to missed status — the
+// spec's own default. Per-theme (resolvePlaybackParams below), not global.
+export const DEFAULT_SILENCE_AFTER_SECONDS = 120;
 // The synthesized cue's own beep-pair takes this long to play, independent
 // of any theme setting — the repeat interval is silence added AFTER it.
 const SYNTH_BEEP_PAIR_SECONDS = 0.4;
@@ -26,6 +29,7 @@ export function resolvePlaybackParams(theme) {
     rampSeconds: theme?.rampSeconds ?? 2,
     vibrate: theme?.vibrate ?? true,
     repeatIntervalSeconds: theme?.repeatIntervalSeconds ?? 0,
+    silenceAfterMs: (theme?.silenceAfterSeconds ?? DEFAULT_SILENCE_AFTER_SECONDS) * 1000,
   };
 }
 

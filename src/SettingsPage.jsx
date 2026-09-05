@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { decodeSound, isSoundTooLong, MAX_SOUND_SECONDS, playAlarm, stopAlarm } from "./lib/alarmPlayer.js";
+import { formatDuration } from "./lib/format.js";
+import TimeInput from "./TimeInput.jsx";
 import * as t from "./theme.js";
 
 // A stable tag for the one preview voice Settings ever plays — only one
@@ -97,6 +99,7 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
   const [rampSeconds, setRampSeconds] = useState(theme?.rampSeconds ?? 2);
   const [vibrate, setVibrate] = useState(theme?.vibrate ?? true);
   const [repeatIntervalSeconds, setRepeatIntervalSeconds] = useState(theme?.repeatIntervalSeconds ?? 0);
+  const [silenceAfterMs, setSilenceAfterMs] = useState((theme?.silenceAfterSeconds ?? 120) * 1000);
   const [pickedSound, setPickedSound] = useState(null); // { arrayBuffer, fileName } | null
   const [pickError, setPickError] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -155,7 +158,13 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
       return;
     }
     try {
-      const fields = { name, rampSeconds: Number(rampSeconds), vibrate, repeatIntervalSeconds: Number(repeatIntervalSeconds) };
+      const fields = {
+        name,
+        rampSeconds: Number(rampSeconds),
+        vibrate,
+        repeatIntervalSeconds: Number(repeatIntervalSeconds),
+        silenceAfterSeconds: Math.round(silenceAfterMs / 1000),
+      };
       const saved = isNew
         ? await app.store.createAlarmTheme(fields)
         : await app.store.updateAlarmTheme(theme.id, fields);
@@ -178,6 +187,7 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
         <div style={{ fontWeight: 700 }}>{theme.name}</div>
         <div style={{ fontSize: 12.5, color: t.colors.textMuted }}>
           Ramp {theme.rampSeconds}s · {theme.repeatIntervalSeconds ?? 0}s gap between repeats · {theme.vibrate ? "Vibrate" : "No vibrate"}
+          {" "}· silence after {formatDuration((theme.silenceAfterSeconds ?? 120) * 1000)}
         </div>
       </div>
     );
@@ -211,6 +221,9 @@ function ThemeCard({ engine, theme, expanded, onToggle, onSaved, onDeleted }) {
       <label style={{ ...t.label, display: "flex", alignItems: "center", gap: 6 }}>
         <input type="checkbox" checked={vibrate} onChange={(e) => setVibrate(e.target.checked)} /> Vibrate
       </label>
+
+      <label style={t.label}>Silence after (before an unanswered alarm is marked missed)</label>
+      <TimeInput valueMs={silenceAfterMs} onChangeMs={setSilenceAfterMs} />
 
       {canPreview && (
         <button style={{ ...t.smallButton, marginTop: 10 }} onClick={togglePreview}>

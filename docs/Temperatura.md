@@ -155,12 +155,13 @@ Tapping Extend: silences the duration-reached alarm if it is currently sounding,
 * If the duration-reached alarm already fired, extending re-arms it so it can fire again once the new, later duration is reached. Elapsed time itself is untouched — extending only moves the target further away, the same way it never resets when paused and resumed.  
 * Restarting the instance clears any extension, the same way it clears everything else about the previous run.  
 * From the notification: tapping Extend brings the app to the foreground so the dialog can actually be answered, unlike Silence which needs no app window at all.
+* If the duration-reached alarm is currently **missed** (see "Missed status" under How alarms work), extending is not cumulative with the stale target — instead the new target becomes *now* plus the entered extension, since the original target has already passed unacknowledged, possibly a long time ago. E.g. a duration reached an hour ago, extended by 5 minutes, effectively becomes +65 minutes (an hour late, plus the 5 minutes just added) — not a pointless +5 minutes on a target already an hour in the past. A normal (not-yet-missed) extend keeps the ordinary cumulative behaviour above.
 
 #### Time entry
 
 Every duration a user types anywhere in the app — a step's duration, a time alarm's trigger point into the step, a time alarm's repeat interval, and how much time to add on Extend — uses one standard control: three boxes for hours, minutes, and seconds, separated by colons, each showing `00` at zero. This replaced an earlier mixture of ad hoc minutes-only and seconds-only fields across different screens.
 
-This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Settings) — those are short audio parameters measured in a handful of seconds, not a step-timing duration, and stay plain seconds fields.
+This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Settings) — those are short audio parameters measured in a handful of seconds, not a step-timing duration, and stay plain seconds fields. An alarm theme's "Silence after" field is the exception: despite living in the same Settings card, it is a real duration (default 2 minutes, plausibly several) rather than an audio microparameter, so it does use the standard control.
 
 #### Step components
 
@@ -201,6 +202,7 @@ Alarm themes: each alarm theme consists of
 * Ramp \- how many seconds to take for the sound to go from silence to full volume (device media volume)  
 * Repeat interval \- how many seconds of silence to leave between repeats of the sound while the alarm is sounding  
 * Vibrate \- whether or not to vibrate for this alarm. A boolean, not a pattern: the vibration pattern itself is fixed in code (see How alarms work).
+* Silence after \- how long an alarm sounds unanswered before it goes to missed status (see "Missed status" under How alarms work). Entered with the standard hours:minutes:seconds control. Default 2 minutes.
 
 User can create, edit, and delete alarm themes.
 
@@ -223,7 +225,7 @@ A fresh install has no user-supplied sound files, so the app ships with one buil
 * the default theme for the lost-BLE-connection alarm,
 * the fallback when a user theme's audio fails to decode.
 
-It cannot be deleted. Its ramp and vibrate settings can be edited.
+It cannot be deleted. Its ramp, vibrate, and silence-after settings can be edited.
 
 ## How alarms work
 
@@ -246,7 +248,20 @@ A button press can only silence one alarm. If multiple alarms are firing the but
 
 For a repeating alarm, silencing kills the one occurrence that is sounding, it does not cancel the repeats.
 
-An unsilenced alarm sounds forever.
+#### Missed status
+
+An alarm left sounding for its theme's "Silence after" duration with nobody acknowledging it goes to **missed** status: audio and vibration stop, but the alarm stays outstanding rather than quietly going back to idle. This applies uniformly to all three alarm kinds (time, temperature, and the implicit data-loss alarm), and the countdown to missed runs on real wall-clock time regardless of whether the step is paused.
+
+A missed alarm is cleared one of two ways:
+
+* **It is dismissed.** A distinct action from silencing, since a missed alarm has nothing currently sounding to silence.
+* **It retriggers on its own.** A repeating time alarm's next interval, a temperature alarm's next crossing after re-arming by deadband, and the data-loss alarm's next loss episode after reconnecting, all fire and sound again even if the previous occurrence was left missed and never dismissed — and that retrigger implicitly clears the earlier missed status (there is only one slot of runtime state per alarm, no history of separate occurrences, so the fresh occurrence simply replaces the stale one). This is deliberate: the point of a repeating alarm is that a missed occurrence must never hold up the next one — a 5-minute repeat with a short silence-after must keep repeating every 5 minutes even if the user never reaches the phone in time to dismiss any given occurrence, or the whole feature would be self-defeating.
+
+A **one-shot** time alarm and the **duration-reached** alarm are the exception: neither ever fires again on its own once it has fired (one-shot by definition; duration-reached unless re-armed via Extend or Restart), so dismissing is the only way to clear their missed status.
+
+Restart clears missed status for every alarm on the step, including temperature alarms (which Restart otherwise leaves alone) — a restart is a fresh run of the step, and a stale missed flag would otherwise permanently block that one alarm with no other way to clear it.
+
+Currently, a missed alarm is resolved from the step page itself (a "Missed" list next to "Sounding", with a Dismiss button per alarm) rather than from a dedicated overlay or the notification — that's a planned later addition. A missed alarm's notification is not yet distinguished from a sounding one beyond going quiet (no more re-posts/vibration nags); its Silence action still shows, and tapping it while already missed is a harmless no-op.
 
 Press-count arithmetic: if presses are received when no alarm is sounding, they are swallowed. If one alarm sounds, and the user presses twice, the alarm is silenced and the second press is swallowed. When the counter wraps or a cold restart of the Feather we will see the count go down instead of up. Treat the count going down as a single button press.
 
@@ -260,7 +275,7 @@ Presses made while disconnected are therefore lost. That is correct: the thermom
 
 #### Restart
 
-Restart re-arms all time alarms, including the duration-reached alarm. Temperature alarms are not affected because they re-arm themselves by temperature, not time.
+Restart re-arms all time alarms, including the duration-reached alarm. Temperature alarms are not affected because they re-arm themselves by temperature, not time — except that Restart does clear a temperature alarm's missed status, same as every other alarm (see "Missed status" above).
 
 #### Notifications and vibration
 
@@ -281,7 +296,7 @@ The vibration pattern is fixed in code, one pattern for all alarms. The per-them
 
 ##### Notification lifetime
 
-An unsilenced alarm sounds forever, and nags every 5 seconds whether the app is visible or hidden. A notification only vibrates at the moment it is posted, so while an alarm is sounding and the app is hidden, its notification is **re-posted every 5 seconds** to carry that same cadence through — each re-post fires the vibration again, which is what makes a phone in a pocket keep nagging. While visible, the same 5-second cadence is delivered by calling `navigator.vibrate(pattern)` directly instead, since there is no notification to re-post.
+An unsilenced alarm nags every 5 seconds, whether the app is visible or hidden, until it is silenced or goes to missed status (see "Missed status" above). A notification only vibrates at the moment it is posted, so while an alarm is sounding and the app is hidden, its notification is **re-posted every 5 seconds** to carry that same cadence through — each re-post fires the vibration again, which is what makes a phone in a pocket keep nagging. While visible, the same 5-second cadence is delivered by calling `navigator.vibrate(pattern)` directly instead, since there is no notification to re-post.
 
 A notification stays up until one of:
 

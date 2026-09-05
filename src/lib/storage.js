@@ -250,6 +250,7 @@ export class Store {
       const patch = {};
       if (existing.name === "Default") patch.name = "Built-in";
       if (existing.repeatIntervalSeconds === undefined) patch.repeatIntervalSeconds = 1;
+      if (existing.silenceAfterSeconds === undefined) patch.silenceAfterSeconds = 120;
       return Object.keys(patch).length > 0 ? this.updateAlarmTheme(DEFAULT_THEME_ID, patch) : existing;
     }
     return this.createAlarmTheme({
@@ -258,6 +259,7 @@ export class Store {
       rampSeconds: 2,
       vibrate: true,
       repeatIntervalSeconds: 1,
+      silenceAfterSeconds: 120,
       isDefault: true,
     });
   }

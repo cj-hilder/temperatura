@@ -197,7 +197,7 @@ console.log('\nExtend: temporary per-instance duration extension, end to end thr
   const silenced = await app.silenceDurationAlarm('inst-extend');
   ok('silenceDurationAlarm silences it without needing to know the alarm id', silenced === alarmId);
 
-  const extended = await app.extendDuration('inst-extend', 3000);
+  const extended = await app.extendDuration('inst-extend', 3000, step.duration);
   ok('extendDuration records the extra ms on the instance', extended.durationExtensionMs === 3000);
   ok('extendDuration re-arms the duration alarm', extended.alarmState[alarmId].firedCount === 0);
 
@@ -213,7 +213,7 @@ console.log('\nExtend: temporary per-instance duration extension, end to end thr
   ok('fires again once the extended threshold is reached', result.newlyFired.some((f) => f.id === alarmId));
 
   // Extending again is cumulative, not a replacement.
-  await app.extendDuration('inst-extend', 1000);
+  await app.extendDuration('inst-extend', 1000, step.duration);
   const twiceExtended = await app.store.getInstance('inst-extend');
   ok('a second extension adds on top of the first', twiceExtended.durationExtensionMs === 4000);
 }
@@ -277,6 +277,150 @@ console.log('\nIngredients multiplier: per-recipe, not part of the recipe record
   // spec requires this to survive.
   const app2 = mkApp();
   ok('survives a restart', await app2.getIngredientsMultiplier(bread.id) === 0.25);
+}
+
+console.log('\nMissed status end to end through app.tick()/app.dismissAlarm — a duration alarm left unanswered goes missed, then can be extended and re-armed:');
+{
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Ferment', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 60_000, kind: 'fixed' };
+  const alarmId = durationAlarmId('step-1');
+  // silenceAfterMs attached directly on the def here, the same way engine.js
+  // attaches it (resolved from the alarm's theme) before calling app.tick.
+  const stepAlarmDefs = [
+    { id: alarmId, kind: 'duration', name: 'Duration reached', atMs: duration.ms, repeat: false, intervalMs: null, theme: null, silenceAfterMs: 10_000 },
+  ];
+
+  await app.startInstance({ id: 'inst-missed', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
+
+  clock = 60_000;
+  let result = await app.tick('inst-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  ok('fires at the duration', result.newlyFired.some((f) => f.id === alarmId));
+  ok('sounding', result.sounding.includes(alarmId));
+
+  // Left unanswered past its 10s silence-after.
+  clock = 71_000;
+  result = await app.tick('inst-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  let instance = await app.store.getInstance('inst-missed');
+  ok('no longer sounding once missed', !result.sounding.includes(alarmId));
+  ok('marked missed', instance.alarmState[alarmId].missed === true);
+
+  // Extend it now, while missed — per the spec's own example, this must
+  // extend from NOW (currently 71s elapsed), not from the stale 60s target.
+  // isMissed=true is passed explicitly, exactly as engine.js's requestExtend
+  // must capture it BEFORE dismissing the alarm (dismissing is what would
+  // otherwise clear this flag out from under a caller that tried to re-derive
+  // it here instead).
+  const extended = await app.extendDuration('inst-missed', 5000, duration, true);
+  ok('extending a missed alarm computes the new target from the current elapsed time',
+    duration.ms + extended.durationExtensionMs === 71_000 + 5000);
+  ok('dismissed by the extension (no longer missed)', extended.alarmState[alarmId].missed === false);
+
+  // Confirm it does NOT fire again immediately (the whole point) — still
+  // short of the new ~76s target. atMs must fold in the fresh
+  // durationExtensionMs, exactly as recipe.js's buildStepAlarmDefs does —
+  // alarms.js only ever compares against def.atMs, it knows nothing about
+  // extensions itself.
+  clock = 75_000;
+  const extendedStepAlarmDefs = [{ ...stepAlarmDefs[0], atMs: duration.ms + extended.durationExtensionMs }];
+  result = await app.tick('inst-missed', {
+    stepAlarmDefs: extendedStepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false,
+  });
+  ok('does not fire again immediately after a from-now extension', result.newlyFired.length === 0);
+}
+
+console.log('\nRegression: extending a missed alarm through the REAL requestExtend/confirmExtend sequencing (dismiss happens BEFORE the extension is confirmed):');
+{
+  // engine.js's requestExtend dismisses (or silences) the alarm immediately,
+  // before the Extend dialog is even shown — the same as it always has, so
+  // Silence/Dismiss takes effect right away regardless of whether the user
+  // goes on to actually confirm an extension. That means by the time
+  // extendDuration is finally called, alarmState[alarmId].missed has ALREADY
+  // been cleared back to false by that dismiss — a caller that tried to
+  // re-derive "was this missed?" from the instance's state AT THAT POINT
+  // would always see false and silently take the wrong (cumulative, not
+  // from-now) branch. This reproduces that exact sequencing endto make sure
+  // isMissed is threaded through as a value captured BEFORE the dismiss, not
+  // re-read after it.
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Loaf', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 5000, kind: 'fixed' };
+  const alarmId = durationAlarmId('step-1');
+  const stepAlarmDefs = [
+    { id: alarmId, kind: 'duration', name: 'Duration reached', atMs: duration.ms, repeat: false, intervalMs: null, theme: null, silenceAfterMs: 8000 },
+  ];
+
+  await app.startInstance({ id: 'inst-real-seq', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
+  clock = 5000;
+  await app.tick('inst-real-seq', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  clock = 13_000; // 8s past firing — misses its silence-after window
+  await app.tick('inst-real-seq', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+
+  // --- this is requestExtend's own sequence, in order ---
+  let instance = await app.store.getInstance('inst-real-seq');
+  const wasMissed = !!instance.alarmState[alarmId]?.missed; // captured first
+  ok('setup: confirmed missed before the request sequence runs', wasMissed === true);
+  await app.dismissAlarm('inst-real-seq', alarmId); // this is what clears it
+  instance = await app.store.getInstance('inst-real-seq');
+  ok('dismissAlarm did in fact already clear missed, before extendDuration is ever called', instance.alarmState[alarmId].missed === false);
+
+  // --- this is confirmExtend's own call, using the captured wasMissed ---
+  clock = 20_000; // the user takes a few seconds to answer the dialog
+  const extended = await app.extendDuration('inst-real-seq', 5000, duration, wasMissed);
+  ok('still extends from-now correctly, using the captured wasMissed rather than the now-cleared live state',
+    duration.ms + extended.durationExtensionMs === 20_000 + 5000);
+}
+
+console.log('\nMissed status end to end — a repeating alarm retriggers on its own at the next interval even if a missed occurrence was never dismissed:');
+{
+  // This is the scenario that drove the design: a 5-minute repeat with a
+  // short silence-after must NOT get stuck just because the user didn't
+  // reach the phone in time — the next 5-minute interval has to fire
+  // regardless, or the whole point of "repeating" is defeated.
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const mkApp = () => createAppController({ backend, now: () => clock });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'Stir loop', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 300_000, kind: 'fixed' };
+  const repId = 'stir1';
+  const stepAlarmDefs = [
+    { id: repId, kind: 'time', name: 'Stir', atMs: 10_000, repeat: true, intervalMs: 10_000, theme: null, silenceAfterMs: 5_000 },
+  ];
+
+  await app.startInstance({ id: 'inst-rep-missed', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
+
+  clock = 10_000;
+  let result = await app.tick('inst-rep-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  ok('fires the first repeat', result.newlyFired.some((f) => f.id === repId));
+
+  clock = 16_000; // 6s later, past the 5s silence-after, still short of the next interval (20s)
+  result = await app.tick('inst-rep-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  let instance = await app.store.getInstance('inst-rep-missed');
+  ok('goes missed', instance.alarmState[repId].missed === true);
+  ok('not silently re-fired just from going missed', result.newlyFired.length === 0);
+
+  clock = 20_000; // the next interval's own due time
+  result = await app.tick('inst-rep-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  instance = await app.store.getInstance('inst-rep-missed');
+  ok('fires the next repeat on schedule even though the previous occurrence was left missed and never dismissed', result.newlyFired.some((f) => f.id === repId));
+  ok('the retrigger implicitly dismisses the earlier missed occurrence', instance.alarmState[repId].missed === false && instance.alarmState[repId].sounding === true);
+
+  // Dismissing explicitly, ahead of the next natural retrigger, is still a
+  // real (optional) action — e.g. to clear the outstanding indicator early.
+  clock = 26_000; // past this occurrence's own silence-after too
+  result = await app.tick('inst-rep-missed', { stepAlarmDefs, hasTempInterest: false, tempBand: null, duration, tempC: null, msSinceLastPacket: null, readingValid: false });
+  instance = await app.store.getInstance('inst-rep-missed');
+  ok('this occurrence goes missed too', instance.alarmState[repId].missed === true);
+  await app.dismissAlarm('inst-rep-missed', repId);
+  instance = await app.store.getInstance('inst-rep-missed');
+  ok('can still be dismissed explicitly', instance.alarmState[repId].missed === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

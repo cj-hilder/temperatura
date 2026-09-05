@@ -9,7 +9,7 @@ import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, completeInstance, requestExtend } = engine;
+  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, silenceAlarm, dismissAlarm, completeInstance, requestExtend } = engine;
   const [editing, setEditing] = useState(false);
   const [index, setIndex] = useState(0);
   const [tagDraft, setTagDraft] = useState(null);
@@ -121,6 +121,16 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         .filter(([, s]) => s.sounding)
         .map(([id]) => ({ id, name: alarmName(step, id) }))
     : [];
+  // An alarm left sounding past its theme's "Silence after" goes missed —
+  // audio/vibration already stopped (see engine.js's tick loop), but it
+  // stays outstanding until dismissed. No global blocking overlay yet (a
+  // later pass); this in-page section is D1's own resolution path so a
+  // missed alarm is never a dead end.
+  const missedAlarms = instance
+    ? Object.entries(instance.alarmState)
+        .filter(([, s]) => s.missed)
+        .map(([id]) => ({ id, name: alarmName(step, id) }))
+    : [];
   const alarmLines = describeStepAlarms(step);
 
   return (
@@ -204,6 +214,18 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
               <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
                 <span>{a.name}</span>
                 <button style={t.smallButton} onClick={() => silenceAlarm(instance.id, a.id)}>Silence</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {missedAlarms.length > 0 && (
+          <div style={{ margin: "12px 0" }}>
+            <h4 style={{ marginBottom: 4 }}>Missed</h4>
+            {missedAlarms.map((a) => (
+              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                <span>{a.name}</span>
+                <button style={t.smallButton} onClick={() => dismissAlarm(instance.id, a.id)}>Dismiss</button>
               </div>
             ))}
           </div>

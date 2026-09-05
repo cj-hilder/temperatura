@@ -10,7 +10,7 @@ import {
   advanceInBand, isMeasured, deriveProvenance, extendDuration,
   acquireClaimOnStart, releaseClaimOnComplete, toggleClaim as toggleClaimHolder,
 } from "./instances.js";
-import { evaluateAlarms, silenceEarliest, silenceById } from "./alarms.js";
+import { evaluateAlarms, silenceEarliest, silenceById, dismissById } from "./alarms.js";
 
 const CLAIM_SETTING_KEY = "claimHolderId";
 const DATA_LOSS_THEME_SETTING_KEY = "dataLossAlarmTheme";
@@ -132,9 +132,31 @@ export function createAppController(deps = {}) {
   // Temporary, per-instance duration extension (build-plan/spec addition:
   // "Extend"). instance.stepId is always this step's own id, so the
   // duration-reached alarm's id is derivable without fetching the recipe.
-  async function doExtendDuration(instanceId, extraMs) {
+  //
+  // `duration` (the step's own {ms, kind}) is supplied by the caller rather
+  // than looked up here — app.js doesn't otherwise touch recipe/step records
+  // at all, mirroring how tick() already receives duration/tempBand from its
+  // own caller — and it's what's needed to extend a MISSED duration alarm
+  // correctly: the new target must be computed from the instance's current
+  // elapsed time, not from the original (already-passed) target.
+  //
+  // `isMissed` is likewise supplied by the caller rather than re-derived from
+  // the instance's CURRENT alarm state here — by the time an extension is
+  // actually confirmed, the alarm has already been dismissed (engine.js's
+  // requestExtend dismisses/silences it up front, before the dialog even
+  // opens, same as it always has), so `alarmState[alarmId].missed` has
+  // already been cleared to false. The caller must capture whether it WAS
+  // missed at the moment the user tapped Extend, before that happened.
+  async function doExtendDuration(instanceId, extraMs, duration, isMissed = false) {
     const instance = await store.getInstance(instanceId);
-    const updated = extendDuration(instance, extraMs, durationAlarmId(instance.stepId));
+    const alarmId = durationAlarmId(instance.stepId);
+    const currentTimeBasisMs =
+      duration.kind === "inBand" ? instance.accumulatedInBandMs : elapsedRunningMs(instance, now());
+    const updated = extendDuration(instance, extraMs, alarmId, {
+      isMissed,
+      originalDurationMs: duration.ms,
+      currentTimeBasisMs,
+    });
     await store.updateInstance(updated);
     return updated;
   }
@@ -159,7 +181,7 @@ export function createAppController(deps = {}) {
    * restart, on the very first evaluation: recovery is not a special case,
    * it's just this same call with a larger gap since lastSampleAt.
    */
-  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid }) {
+  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid, dataLossSilenceAfterMs }) {
     const instance = await store.getInstance(instanceId);
     const claimHolderId = await getClaimHolderId();
     const claimed = claimHolderId === instanceId;
@@ -188,6 +210,7 @@ export function createAppController(deps = {}) {
       measured,
       tempC,
       now: t,
+      dataLossSilenceAfterMs,
     });
 
     const finalInstance = { ...advanced, alarmState };
@@ -212,6 +235,15 @@ export function createAppController(deps = {}) {
     const { alarmState, silencedId } = silenceById(instance.alarmState, alarmId);
     await store.updateInstance({ ...instance, alarmState });
     return silencedId;
+  }
+
+  // Clears a missed alarm's outstanding status — distinct from silencing,
+  // since a missed alarm has nothing currently sounding to silence.
+  async function dismissAlarm(instanceId, alarmId) {
+    const instance = await store.getInstance(instanceId);
+    const { alarmState, dismissedId } = dismissById(instance.alarmState, alarmId);
+    await store.updateInstance({ ...instance, alarmState });
+    return dismissedId;
   }
 
   // ---- Thermometer ----
@@ -241,6 +273,7 @@ export function createAppController(deps = {}) {
     tick,
     silence,
     silenceAlarm,
+    dismissAlarm,
     connectThermometer,
     disconnectThermometer,
     getLastPacketAt,
