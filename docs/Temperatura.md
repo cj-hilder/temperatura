@@ -14,6 +14,8 @@ A sans-serif font. Colour theme to be cool blues, based off the supplied icon ba
 
 Temperature data comes from the FeatherThermometer via BLE connection. The BLE connection supplies temperature, battery level, and button press data. The button press data is used to cancel/silence alarms. 
 
+Wherever the current temperature is shown (Home, Recipe, Step), the battery level is shown on the same line, right-justified, as a battery icon — not as a separate line, and not shown at all when there is no current-temperature line to attach to (i.e. never shown while disconnected). The icon turns red at 15% or below.
+
 ## A recipe consists of
 
 1. A recipe name  
@@ -32,6 +34,21 @@ Temperature data comes from the FeatherThermometer via BLE connection. The BLE c
    5. Optionally a temperature band (low temperature and high temperature)  
    6. Any number of temperature alarms (these are progress alarms) \- and for each temperature alarm a parameter that specifies is the alarm ‘heating’ or ‘cooling’ (heating alarms will only trigger if going from below to above the temperature, cooling alarms are the opposite). Each temperature alarm has a name.
 
+## Ingredients multiplier
+
+An ingredient's quantity is entered as either a plain decimal (e.g. `0.5`) or a simple fraction (e.g. `1/2`) — both are accepted. A blank quantity is also allowed (e.g. an ingredient like "Salt — to taste" that has none); anything else is rejected at save time with a message explaining why.
+
+The Recipe page's ingredients panel has a transient multiplier, defaulting to 1 (no scaling). It is per-recipe — each recipe remembers its own last-used multiplier independently, so scaling one recipe never affects another that happens to be open at the same time — and persists across closing and reopening that recipe, but it is stored separately from the recipe's own data (not part of its JSON, and not included in that recipe's JSON export/import).
+
+Scaling a quantity by the multiplier follows the format the quantity was originally entered in:
+
+* A **decimal** quantity always displays its scaled result as a decimal (e.g. `0.5` cup ×0.25 = `0.125` cup), however many decimal places that takes.
+* A **fraction** quantity displays its scaled result as a fraction when that result, expressed as an exact fraction and reduced to lowest terms, has a denominator in the set **{2, 3, 4, 8, 16, 32, 64}** — the standard kitchen fraction denominators. Otherwise it falls back to decimal. E.g. `1/2` cup ×0.25 = `1/8` cup (denominator 8, stays a fraction), but `1/2` cup ×0.24 = `0.12` cup (reduces to 3/25, denominator 25 is not in the set, falls back to decimal).
+
+The multiplier itself is always a plain decimal number, never a fraction.
+
+The "Export as PDF" action (see below) reflects whatever multiplier is currently active for that recipe, so the shared copy matches what the screen was showing.
+
 ## Storage
 
 IndexedDB as source of truth, "Open" means pick from a stored list. Plus JSON import/export of individual recipes as well as backup/restore all saved data. RTW's model, which is already working in storage.js
@@ -39,6 +56,10 @@ IndexedDB as source of truth, "Open" means pick from a stored list. Plus JSON im
 The set of open recipes is itself persisted, and is restored when the app restarts. It has to be: a running instance recovered after the app was killed belongs to a recipe, and without that recipe being open there would be no tile to display the instance under.
 
 A recipe with one or more running instances is force-open. Its close button still appears, but tapping it warns the user that closing will complete all running instances of that recipe's steps, and closes only on confirmation.
+
+### Export as PDF
+
+Separate from the JSON export above (which is a machine-readable backup/import format), the hamburger menu also offers "Export as PDF" — a human-readable copy of a recipe, so it can be shared with someone who doesn't have the app. It renders the recipe (name, description, servings, notes, ingredients, and every step's name, description, duration/temperature band, and alarms in plain language) as a standalone HTML document opened in a new window, then invokes the browser's own print dialog — the user picks "Save as PDF" there. No PDF-generation library is involved or needed. Same act-on-current-recipe-else-picker behaviour as the JSON Export button.
 
 ## UX
 
@@ -79,7 +100,7 @@ The main page contains
 2. Description  
 3. Notes  
 4. Quantity/servings \- this is a label, not a dynamic calculator  
-5. A panel for the ingredients  
+5. A panel for the ingredients — see Ingredients multiplier below  
 6. A collection of tiles, vertically stacked, one for each step. Note: if the step is in progress more than once (parallel instances of the same step) there is only one tile for the step here. The contents of these tiles are not editable. Each step contains  
    1. Step name  
    2. Step description  

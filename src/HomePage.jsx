@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
+import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
@@ -63,11 +64,7 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
         </button>
       </div>
 
-      {connectionState === "connected" && latestSample && (
-        <div style={{ padding: "10px 16px", fontSize: 14, color: t.colors.textMuted }}>
-          Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
-        </div>
-      )}
+      {connectionState === "connected" && latestSample && <CurrentTemperatureLine sample={latestSample} />}
 
       {openRecipes.length === 0 && (
         <p style={{ padding: "0 16px", color: t.colors.textMuted }}>No recipes open. Tap Open to pick one, or ＋ to create one.</p>

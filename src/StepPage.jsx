@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import StepEditor from "./StepEditor.jsx";
+import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, alarmName, describeStepAlarms } from "./stepDisplay.js";
 import { elapsedRunningMs } from "./lib/instances.js";
@@ -148,11 +149,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         </button>
       </div>
 
-      {connectionState === "connected" && claimed && latestSample && (
-        <div style={{ padding: "10px 16px", fontSize: 14, color: t.colors.textMuted }}>
-          Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
-        </div>
-      )}
+      {connectionState === "connected" && claimed && latestSample && <CurrentTemperatureLine sample={latestSample} />}
 
       {instances.length > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: 8 }}>

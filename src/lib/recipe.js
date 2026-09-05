@@ -3,6 +3,7 @@
 // job — storage.js's Store already owns id generation (mirroring RTW's
 // Store.createRoute), so a blank recipe/step here just takes whatever id its
 // caller already decided on.
+import { isValidQuantityString } from "./quantity.js";
 
 export function createBlankRecipe(id) {
   return {
@@ -86,6 +87,14 @@ export function validateStep(step) {
 export function validateRecipe(recipe) {
   const errors = [];
   if (!recipe.name || typeof recipe.name !== "string") errors.push("Recipe name is required.");
+  // A blank quantity is allowed (e.g. "Salt — to taste"), but a non-blank one
+  // must be a decimal or a simple fraction — the ingredients multiplier can
+  // only scale a quantity it can parse.
+  for (const ing of recipe.ingredients ?? []) {
+    if (!isValidQuantityString(ing.quantity)) {
+      errors.push(`Ingredient "${ing.name}": quantity must be a number (e.g. 0.5) or a simple fraction (e.g. 1/2).`);
+    }
+  }
   for (const step of recipe.steps) {
     const stepResult = validateStep(step);
     errors.push(...stepResult.errors);

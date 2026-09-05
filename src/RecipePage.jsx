@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import RecipeEditor from "./RecipeEditor.jsx";
+import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { formatDuration } from "./lib/format.js";
+import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
@@ -13,6 +15,27 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
   };
   // Hardware back closes the editor exactly like its own ✕ would.
   useBackDismiss(editing, closeEditor);
+
+  // Per-recipe, transient, and never part of the recipe's own data (see
+  // app.js's getIngredientsMultiplier) — loaded separately rather than
+  // riding along with the recipe record itself. Draft/commit-on-blur follows
+  // the same pattern as StepPage's tag input, so a half-typed "0." isn't
+  // clobbered by a re-render before the user finishes.
+  const [multiplier, setMultiplier] = useState(1);
+  const [multiplierDraft, setMultiplierDraft] = useState(null);
+  useEffect(() => {
+    app.getIngredientsMultiplier(recipeId).then(setMultiplier);
+  }, [app, recipeId]);
+  const commitMultiplier = async () => {
+    if (multiplierDraft !== null) {
+      const parsed = Number(multiplierDraft);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        await app.setIngredientsMultiplier(recipeId, parsed);
+        setMultiplier(parsed);
+      }
+    }
+    setMultiplierDraft(null);
+  };
 
   const entry = openRecipes.find((r) => r.recipe.id === recipeId);
 
@@ -79,11 +102,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
         </button>
       </div>
 
-      {connectionState === "connected" && latestSample && (
-        <div style={{ padding: "10px 16px", fontSize: 14, color: t.colors.textMuted }}>
-          Current temperature: {latestSample.tempC == null ? "no data" : `${latestSample.tempC.toFixed(1)}°C`}
-        </div>
-      )}
+      {connectionState === "connected" && latestSample && <CurrentTemperatureLine sample={latestSample} />}
 
       <div style={{ padding: "0 16px" }}>
         <h1 style={{ marginBottom: 4 }}>{recipe.name}</h1>
@@ -99,15 +118,30 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
 
       {recipe.ingredients.length > 0 && (
         <div style={t.card}>
-          <h4 style={{ marginTop: 0 }}>Ingredients</h4>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h4 style={{ margin: 0 }}>Ingredients</h4>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: t.colors.textMuted }}>
+              ×
+              <input
+                style={{ ...t.input, width: 56, padding: "4px 6px" }}
+                value={multiplierDraft ?? multiplier}
+                onChange={(e) => setMultiplierDraft(e.target.value)}
+                onBlur={commitMultiplier}
+                title="Ingredients multiplier — scales the quantities below, for this recipe only. Not saved as part of the recipe."
+              />
+            </label>
+          </div>
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <tbody>
-              {recipe.ingredients.map((ing, i) => (
-                <tr key={i}>
-                  <td style={{ padding: "4px 0" }}>{ing.name}</td>
-                  <td style={{ padding: "4px 0", textAlign: "right", color: t.colors.textMuted }}>{ing.quantity} {ing.unit}</td>
-                </tr>
-              ))}
+              {recipe.ingredients.map((ing, i) => {
+                const scaled = formatQuantity(scaleQuantity(parseQuantity(ing.quantity), multiplier));
+                return (
+                  <tr key={i}>
+                    <td style={{ padding: "4px 0" }}>{ing.name}</td>
+                    <td style={{ padding: "4px 0", textAlign: "right", color: t.colors.textMuted }}>{scaled || ing.quantity} {ing.unit}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

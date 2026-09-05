@@ -73,7 +73,7 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
         {ingredients.map((ing, i) => (
           <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
             <input style={{ ...t.input, flex: 2 }} placeholder="Name" value={ing.name} onChange={(e) => updateIngredient(i, { name: e.target.value })} />
-            <input style={{ ...t.input, flex: 1 }} placeholder="Qty" value={ing.quantity} onChange={(e) => updateIngredient(i, { quantity: e.target.value })} />
+            <input style={{ ...t.input, flex: 1 }} placeholder="0.5 or 1/2" value={ing.quantity} onChange={(e) => updateIngredient(i, { quantity: e.target.value })} />
             <input style={{ ...t.input, flex: 1 }} placeholder="Unit" value={ing.unit} onChange={(e) => updateIngredient(i, { unit: e.target.value })} />
             <button style={t.smallButton} onClick={() => removeIngredient(i)}>✕</button>
           </div>

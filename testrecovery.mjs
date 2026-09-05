@@ -258,5 +258,26 @@ console.log('\nStarting a claimed instance well outside the band does not clock 
   ok('first real (out-of-band) measurement: still zero accumulated — no leftover erroneous time', instance.accumulatedInBandMs === 0);
 }
 
+console.log('\nIngredients multiplier: per-recipe, not part of the recipe record, survives a restart:');
+{
+  const backend = new MemoryBackend();
+  const mkApp = () => createAppController({ backend, now: () => 0 });
+  const app1 = mkApp();
+  const bread = await app1.createRecipe({ name: 'Bread', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const soup = await app1.createRecipe({ name: 'Soup', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+
+  ok('defaults to 1 (no scaling) before ever being set', await app1.getIngredientsMultiplier(bread.id) === 1);
+
+  await app1.setIngredientsMultiplier(bread.id, 0.25);
+  ok('setIngredientsMultiplier is readable back immediately', await app1.getIngredientsMultiplier(bread.id) === 0.25);
+  ok('a different recipe is unaffected', await app1.getIngredientsMultiplier(soup.id) === 1);
+  ok('not stored on the recipe record itself', (await app1.getRecipe(bread.id)).ingredientsMultiplier === undefined);
+
+  // A restart (fresh controller, same backend) is the "close and open" the
+  // spec requires this to survive.
+  const app2 = mkApp();
+  ok('survives a restart', await app2.getIngredientsMultiplier(bread.id) === 0.25);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

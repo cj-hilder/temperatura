@@ -27,6 +27,25 @@ console.log('\nRecipes: create, get, list, update, validation:');
   threw = false;
   try { await store.createRecipe({ ...createBlankRecipe(), name: 'Bad', steps: [badStep] }); } catch { threw = true; }
   ok('createRecipe rejects an in-band duration with no temperature band', threw);
+
+  threw = false;
+  try {
+    await store.createRecipe({
+      ...createBlankRecipe(), name: 'Bad quantity',
+      ingredients: [{ name: 'Flour', quantity: 'lots', unit: 'g' }],
+    });
+  } catch { threw = true; }
+  ok('createRecipe rejects an ingredient quantity that is neither a decimal nor a fraction', threw);
+
+  const saved2 = await store.createRecipe({
+    ...createBlankRecipe(), name: 'Good quantities',
+    ingredients: [
+      { name: 'Flour', quantity: '500', unit: 'g' },
+      { name: 'Water', quantity: '1/2', unit: 'cup' },
+      { name: 'Salt', quantity: '', unit: 'to taste' },
+    ],
+  });
+  ok('createRecipe accepts decimal, fraction, and blank ingredient quantities', saved2.ingredients.length === 3);
 }
 
 console.log('\nRecipe JSON import/export (individual recipe):');

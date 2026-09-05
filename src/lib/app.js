@@ -14,6 +14,12 @@ import { evaluateAlarms, silenceEarliest, silenceById } from "./alarms.js";
 
 const CLAIM_SETTING_KEY = "claimHolderId";
 const DATA_LOSS_THEME_SETTING_KEY = "dataLossAlarmTheme";
+// One multiplier per recipe, not one global value — scaling today's loaf
+// must never also scale an unrelated soup recipe that happens to be open at
+// the same time. Stored under the generic settings store (keyed by recipe
+// id) rather than on the recipe record itself, since the multiplier is
+// spec'd as transient and explicitly NOT part of the recipe's own data.
+const INGREDIENTS_MULTIPLIER_PREFIX = "ingredientsMultiplier:";
 
 /**
  * @param {object} [deps]
@@ -60,6 +66,11 @@ export function createAppController(deps = {}) {
   // for the user to choose it but here.
   const getDataLossAlarmTheme = () => store.getSetting(DATA_LOSS_THEME_SETTING_KEY, DEFAULT_THEME_ID);
   const setDataLossAlarmTheme = (themeId) => store.setSetting(DATA_LOSS_THEME_SETTING_KEY, themeId);
+
+  // ---- Ingredients multiplier (per recipe, transient — see the constant above) ----
+
+  const getIngredientsMultiplier = (recipeId) => store.getSetting(INGREDIENTS_MULTIPLIER_PREFIX + recipeId, 1);
+  const setIngredientsMultiplier = (recipeId, value) => store.setSetting(INGREDIENTS_MULTIPLIER_PREFIX + recipeId, value);
 
   // ---- Instance lifecycle ----
 
@@ -215,6 +226,7 @@ export function createAppController(deps = {}) {
     openRecipe, listOpenRecipeIds, closeRecipe,
     getClaimHolderId, toggleClaim,
     ensureDefaultTheme, getDataLossAlarmTheme, setDataLossAlarmTheme,
+    getIngredientsMultiplier, setIngredientsMultiplier,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,
