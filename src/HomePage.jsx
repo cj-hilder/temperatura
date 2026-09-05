@@ -89,7 +89,10 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
                 </div>
               ) : (
                 <button
-                  style={t.iconButton}
+                  // Not t.iconButton here — that's white text for the gradient
+                  // header bar. Reused on this white card tile, the ✕ rendered
+                  // as white-on-white: present and clickable, just invisible.
+                  style={{ ...t.iconButton, color: t.colors.text }}
                   title="Close"
                   onClick={() => (running.length > 0 ? setCloseConfirmId(recipe.id) : handleClose(recipe.id))}
                 >
@@ -138,7 +141,7 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
               ))}
               {filtered.length === 0 && <p style={{ color: t.colors.textMuted }}>Nothing found.</p>}
             </ul>
-            <button style={{ ...t.secondaryButton, marginTop: 8 }} onClick={() => setPicker(null)}>Close</button>
+            <button style={{ ...t.secondaryButton, marginTop: 8 }} onClick={() => setPicker(null)}>Cancel</button>
           </div>
         </div>
       )}
