@@ -190,7 +190,15 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
               />
             </div>
             <div style={{ fontSize: 13, color: t.colors.textMuted, marginTop: 4 }}>
-              {progress.elapsedLabel} elapsed{progress.latchedEstimate ? " ≈" : ""} · {progress.remainingLabel} remaining
+              {progress.elapsedLabel} elapsed{progress.latchedEstimate ? " ≈" : ""} · {progress.remainingLabel}{" "}
+              {progress.remainingMs < 0 ? (
+                // Past the duration: the alarm may already be silenced, but
+                // the clock keeps running until Complete — this is the only
+                // remaining cue that it's still counting.
+                <b style={{ color: t.colors.accentRed }}>extra time</b>
+              ) : (
+                "remaining"
+              )}
               {provenanceLabel(progress.provenance) ? ` — ${provenanceLabel(progress.provenance)}` : ""}
             </div>
           </div>
