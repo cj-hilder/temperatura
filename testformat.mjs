@@ -1,4 +1,4 @@
-import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs } from './src/lib/format.js';
+import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs, formatHMS } from './src/lib/format.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -55,6 +55,14 @@ console.log('\nhmsToMs:');
   ok('hours, minutes, and seconds', hmsToMs({ h: 2, m: 5, s: 3 }) === 2 * 3_600_000 + 5 * 60_000 + 3_000);
   ok('missing fields default to zero', hmsToMs({ m: 5 }) === 5 * 60_000);
   ok('round-trips through msToHMS', hmsToMs(msToHMS(7384_000)) === 7384_000);
+}
+
+console.log('\nformatHMS:');
+{
+  ok('zero is fully zero-padded', formatHMS(0) === '00:00:00');
+  ok('minutes and seconds, hours still shown as 00', formatHMS(5 * 60_000) === '00:05:00');
+  ok('hours are zero-padded too, unlike formatDuration', formatHMS(2 * 3_600_000 + 5 * 60_000 + 3_000) === '02:05:03');
+  ok('seconds only', formatHMS(45_000) === '00:00:45');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

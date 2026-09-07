@@ -163,7 +163,13 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
       )}
 
       <div style={{ padding: "0 16px" }}>
-        <h1 style={{ marginBottom: 4 }}>{step.name}</h1>
+        <div
+          style={{ fontSize: 13, fontWeight: 600, color: t.colors.textMuted, cursor: "pointer" }}
+          onClick={() => navigate({ view: "recipe", recipeId })}
+        >
+          {recipe.name}
+        </div>
+        <h1 style={{ marginTop: 0, marginBottom: 4 }}>{step.name}</h1>
         <p style={{ color: t.colors.textMuted }}>{step.description}</p>
         <p style={{ fontSize: 12, color: t.colors.textMuted, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span>

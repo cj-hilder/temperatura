@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import TimeInput from "./TimeInput.jsx";
+import { sortTimeAlarms, sortTempAlarms } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
 const MIN_MS = 60_000;
@@ -67,8 +68,11 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
       durationReachedAlarm: duration ? { enabled: durationReachedOn, theme: durationReachedTheme } : null,
       bandMinAlarm: { theme: bandMinTheme },
       bandMaxAlarm: { theme: bandMaxTheme },
-      timeAlarms,
-      tempAlarms,
+      // Sorted only on the way out — a newly-added alarm stays at the bottom
+      // for the rest of this edit (adding it mid-list every keystroke would
+      // be disorienting), reflowing into place once you leave the editor.
+      timeAlarms: sortTimeAlarms(timeAlarms),
+      tempAlarms: sortTempAlarms(tempAlarms),
     };
     try {
       await app.updateRecipe(recipe.id, {

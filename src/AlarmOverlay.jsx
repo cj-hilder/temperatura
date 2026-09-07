@@ -1,5 +1,5 @@
-import { alarmName } from "./stepDisplay.js";
-import { durationAlarmId } from "./lib/recipe.js";
+import { alarmName, alarmDetail } from "./stepDisplay.js";
+import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
 // Every currently sounding or missed alarm, across every open recipe and
@@ -14,8 +14,13 @@ function outstandingAlarms(openRecipes) {
     for (const instance of instances) {
       const step = recipe.steps.find((s) => s.id === instance.stepId);
       if (!step) continue;
+      // Same defs the tick loop evaluates against, extension included, so
+      // the duration-reached alarm's displayed time matches whatever it was
+      // actually extended to, not the step's un-extended default.
+      const stepAlarmDefs = buildStepAlarmDefs(step, { durationExtensionMs: instance.durationExtensionMs || 0 });
       for (const [alarmId, state] of Object.entries(instance.alarmState)) {
         if (!state.sounding && !state.missed) continue;
+        const def = stepAlarmDefs.find((d) => d.id === alarmId);
         rows.push({
           key: `${instance.id}:${alarmId}`,
           instanceId: instance.id,
@@ -23,6 +28,7 @@ function outstandingAlarms(openRecipes) {
           recipeName: recipe.name,
           stepName: step.name,
           alarmName: alarmName(step, alarmId),
+          detail: alarmDetail(def, state.firedCount),
           tag: instance.tag,
           missed: state.missed,
           firedAt: state.firedAt ?? 0,
@@ -57,6 +63,7 @@ export default function AlarmOverlay({ engine }) {
             <div style={{ fontWeight: 700 }}>{r.recipeName} · {r.stepName}</div>
             <div style={{ fontSize: 13 }}>
               {r.alarmName}
+              {r.detail ? ` (${r.detail})` : ""}
               {r.tag ? ` — ${r.tag}` : ""}
             </div>
             {r.missed && <div style={{ fontSize: 12, color: t.colors.accentRed, marginTop: 2 }}>Missed</div>}

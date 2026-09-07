@@ -93,7 +93,7 @@ Tapping a tile causes the recipe page to appear, showing the recipe
 
 Icon row at the top: home, edit, hamburger, connect
 
-* Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps
+* Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps. Steps are also draggable by a handle to reorder them — the order set here is the order steps are listed in throughout the app (this page's own step tiles, and Previous/Next on the step page).
 
 Current temperature (if connected). Raw device reading, as on the home page.  
 The main page contains
@@ -142,6 +142,8 @@ The claim only exists to decide which instance the temperature readings apply to
 * Tapping the icon on an instance that does not hold the claim gives the claim to that instance. If another instance held it, the claim transfers, because the user tapping the icon is the user telling the app they have physically moved the probe. The "never takes the claim" rule above governs automatic acquisition at Start only, not a deliberate tap.
 
 The main page contains
+
+A small heading showing the recipe's name, above the step name — tapping it goes back to the recipe page, the same destination as the Back icon.
 
 Current temperature (if connected and the thermometer is claimed by this instance)
 
@@ -204,6 +206,8 @@ This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Sett
   * Temperature  
   * Heating or cooling  
   * Alarm theme
+
+Wherever a step's alarms are listed as a group — the step page's own list, and the order alarms are edited in — they appear in one canonical order: time alarms ascending by trigger time, then the duration-reached alarm, then heating temperature alarms ascending by threshold, then cooling temperature alarms descending by threshold, then the temperature band's two implicit alarms. A newly-added alarm is appended at the bottom of its own list while you're still editing (so adding one doesn't jump around mid-edit) and reflows into its sorted position the moment you leave the editor.
 
 ## Settings
 
@@ -276,6 +280,8 @@ Restart clears missed status for every alarm on the step, including temperature 
 #### The alarm overlay
 
 Every currently sounding or missed alarm, across every open recipe and every running instance, is shown in one overlay that sits on top of everything else in the app — including an open recipe or step editor. Each row shows the recipe name, step name, alarm name, and the instance's tag if it has one. There is no way to close the overlay directly: it disappears only once every row has been resolved (silenced if sounding, dismissed if missed), one at a time or in any order.
+
+The alarm name carries a parenthetical qualifier naming its kind and value, so a row is legible without opening the step: a time alarm (including the duration-reached alarm) reads `(time HH:MM:SS)`, a heating temperature alarm `(heating N deg)`, a cooling one `(cooling N deg)`. A repeating time alarm additionally carries which occurrence this is — `(#3 time HH:MM:SS)` for its third firing — numbered from its first occurrence (`#1`), not just from the second onward.
 
 A row for the duration-reached alarm also carries an **Extend** button beside Silence/Dismiss — the same rule the step page's own Extend button already follows (available whenever the step has a duration). Extending a missed duration alarm from the overlay uses the same "from now, not from the stale target" math described above.
 

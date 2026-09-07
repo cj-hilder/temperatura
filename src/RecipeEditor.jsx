@@ -1,6 +1,96 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createBlankStep } from "./lib/recipe.js";
 import * as t from "./theme.js";
+
+// Reorderable steps list — smooth drag via Pointer Events, not a library:
+// this is an Android PWA, and HTML5's native `draggable` attribute is a
+// mouse-era API with poor/inconsistent touch support, which is the only
+// input this app actually needs to handle well. Pointer Events unify
+// mouse/touch/pen behind one API and support setPointerCapture, so the
+// handle keeps receiving move/up events even once the pointer has moved off
+// it — exactly what a drag handle needs.
+//
+// The underlying `steps` array is left untouched for the whole drag; only a
+// CSS transform per row is updated (translateY, driven straight off the
+// pointer's total movement for the dragged row — always exact, never
+// drifts). Neighboring rows are shifted by one row-height with their own
+// CSS transition, which is what makes them visibly slide out of the way
+// instead of snapping. The array itself is only spliced once, on release —
+// by then every row's transform already shows the end state, so the actual
+// reorder is invisible.
+function DraggableSteps({ steps, onReorder, renderRow }) {
+  const rowRefs = useRef([]);
+  const dragInfo = useRef(null); // { startY, rowHeight, startIndex } — not visual, no re-render needed
+  const [dragIndex, setDragIndex] = useState(null);
+  const [deltaY, setDeltaY] = useState(0);
+  const [overIndex, setOverIndex] = useState(null);
+
+  const handlePointerDown = (i, e) => {
+    dragInfo.current = { startY: e.clientY, rowHeight: rowRefs.current[i].offsetHeight, startIndex: i };
+    setDragIndex(i);
+    setOverIndex(i);
+    setDeltaY(0);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e) => {
+    if (!dragInfo.current) return;
+    const { startY, rowHeight, startIndex } = dragInfo.current;
+    const dy = e.clientY - startY;
+    setDeltaY(dy);
+    setOverIndex(Math.max(0, Math.min(steps.length - 1, startIndex + Math.round(dy / rowHeight))));
+  };
+
+  const endDrag = () => {
+    if (dragInfo.current && overIndex != null && overIndex !== dragInfo.current.startIndex) {
+      onReorder(dragInfo.current.startIndex, overIndex);
+    }
+    dragInfo.current = null;
+    setDragIndex(null);
+    setOverIndex(null);
+    setDeltaY(0);
+  };
+
+  return (
+    <>
+      {steps.map((step, i) => {
+        let transform = 0;
+        if (dragIndex != null) {
+          if (i === dragIndex) transform = deltaY;
+          else if (dragIndex < overIndex && i > dragIndex && i <= overIndex) transform = -dragInfo.current.rowHeight;
+          else if (dragIndex > overIndex && i < dragIndex && i >= overIndex) transform = dragInfo.current.rowHeight;
+        }
+        return (
+          <div
+            key={step.id}
+            ref={(el) => (rowRefs.current[i] = el)}
+            style={{
+              display: "flex",
+              gap: 6,
+              marginBottom: 6,
+              transform: `translateY(${transform}px)`,
+              transition: i === dragIndex ? "none" : "transform 150ms ease",
+              position: i === dragIndex ? "relative" : "static",
+              zIndex: i === dragIndex ? 1 : "auto",
+            }}
+          >
+            <button
+              style={{ ...t.iconButton, color: t.colors.text, touchAction: "none", cursor: "grab" }}
+              title="Drag to reorder"
+              onPointerDown={(e) => handlePointerDown(i, e)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
+              ⠿
+            </button>
+            {renderRow(step, i)}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
   const { app } = engine;
@@ -24,6 +114,13 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
   const addStep = () => setSteps([...steps, createBlankStep(crypto.randomUUID())]);
   const updateStepName = (i, v) => setSteps(steps.map((s, j) => (j === i ? { ...s, name: v } : s)));
   const removeStep = (i) => setSteps(steps.filter((_, j) => j !== i));
+  const reorderSteps = (from, to) =>
+    setSteps((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
 
   const save = async () => {
     setError(null);
@@ -84,12 +181,16 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
         <p style={{ fontSize: 12, color: t.colors.textMuted, marginTop: -4 }}>
           Duration, temperature band, and alarms are edited on the step's own page.
         </p>
-        {steps.map((step, i) => (
-          <div key={step.id} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-            <input style={t.input} placeholder="Step name" value={step.name} onChange={(e) => updateStepName(i, e.target.value)} />
-            <button style={t.smallButton} onClick={() => removeStep(i)}>✕</button>
-          </div>
-        ))}
+        <DraggableSteps
+          steps={steps}
+          onReorder={reorderSteps}
+          renderRow={(step, i) => (
+            <>
+              <input style={t.input} placeholder="Step name" value={step.name} onChange={(e) => updateStepName(i, e.target.value)} />
+              <button style={t.smallButton} onClick={() => removeStep(i)}>✕</button>
+            </>
+          )}
+        />
         <button style={t.smallButton} onClick={addStep}>+ Add step</button>
 
         {error && <p style={t.errorText}>{error}</p>}

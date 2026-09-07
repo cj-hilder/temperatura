@@ -1,6 +1,6 @@
 import { elapsedRunningMs, isMeasured, deriveProvenance } from "./lib/instances.js";
-import { durationAlarmId } from "./lib/recipe.js";
-import { formatDuration, formatRemaining } from "./lib/format.js";
+import { durationAlarmId, sortTimeAlarms, sortTempAlarms } from "./lib/recipe.js";
+import { formatDuration, formatRemaining, formatHMS } from "./lib/format.js";
 
 // Resolves an alarms.js alarm id (local to one step's evaluation, e.g.
 // "temp1" or the implicit "__dataLoss") back to a human-readable name, using
@@ -20,10 +20,12 @@ export function alarmName(step, alarmId) {
 
 // One human-readable line per configured alarm — every time alarm, every
 // temperature alarm, and the duration-reached alarm if enabled — so the step
-// page can list them all without entering edit mode.
+// page can list them all without entering edit mode. Ordered per spec: time
+// alarms ascending → duration alarm → heating ascending → cooling
+// descending → band alarms.
 export function describeStepAlarms(step) {
   const lines = [];
-  for (const a of step.timeAlarms) {
+  for (const a of sortTimeAlarms(step.timeAlarms)) {
     lines.push({
       id: a.id,
       text: a.repeat
@@ -31,20 +33,39 @@ export function describeStepAlarms(step) {
         : `${a.name} — ${formatDuration(a.atMs)} in`,
     });
   }
-  for (const a of step.tempAlarms) {
-    lines.push({ id: a.id, text: `${a.name} — ${a.thresholdC}°C, ${a.direction}` });
-  }
   if (step.duration && step.durationReachedAlarm?.enabled) {
     lines.push({
       id: durationAlarmId(step.id),
       text: `Duration reached — at ${formatDuration(step.duration.ms)}`,
     });
   }
+  for (const a of sortTempAlarms(step.tempAlarms)) {
+    lines.push({ id: a.id, text: `${a.name} — ${a.thresholdC}°C, ${a.direction}` });
+  }
   if (step.tempBand) {
     lines.push({ id: `${step.id}-band-min`, text: `Below band — ${step.tempBand.lowC}°C, cooling` });
     lines.push({ id: `${step.id}-band-max`, text: `Above band — ${step.tempBand.highC}°C, heating` });
   }
   return lines;
+}
+
+// The alarm overlay's "(time 00:05:00)" / "(heating 70 deg)" / "(cooling 40
+// deg)" qualifier — spec calls these out by kind so a row is legible without
+// opening the step. `def` is one entry from buildStepAlarmDefs (has the
+// atMs/repeat/intervalMs or thresholdC/direction fields); `firedCount` is
+// this alarm's current occurrence number, from its alarmState — every
+// occurrence of a repeating alarm is numbered, not just the second onward,
+// so there's no special first-time case to reason about.
+export function alarmDetail(def, firedCount) {
+  if (!def) return null;
+  if (def.kind === "time" || def.kind === "duration") {
+    const label = `time ${formatHMS(def.atMs)}`;
+    return def.repeat ? `#${firedCount} ${label}` : label;
+  }
+  if (def.kind === "temperature") {
+    return `${def.direction} ${def.thresholdC} deg`;
+  }
+  return null;
 }
 
 /**

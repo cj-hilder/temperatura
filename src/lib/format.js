@@ -47,6 +47,14 @@ export function hmsToMs({ h, m, s }) {
   return ((Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)) * 1000;
 }
 
+// Always-zero-padded H:MM:SS (e.g. "00:05:00"), unlike formatDuration's
+// terser "5:00" — for the alarm overlay's "(time 00:05:00)" style detail,
+// where a fixed width reads better in a list of mixed short/long alarms.
+export function formatHMS(ms) {
+  const { h, m, s } = msToHMS(ms);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 // Overdue (past the alarm/duration point) renders as "+H:MM:SS" rather than
 // an empty string — a step keeps running past its duration until Complete is
 // tapped, so "how far past" is meaningful, not an error state.

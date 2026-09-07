@@ -102,6 +102,25 @@ export function validateRecipe(recipe) {
   return { valid: errors.length === 0, errors };
 }
 
+// Canonical alarm ordering (spec): time alarms ascending → duration alarm →
+// heating alarms ascending → cooling alarms descending → band alarms. These
+// two sorts cover the two arrays that ordering actually reorders — the
+// duration alarm and band alarms are single fixed fields, not arrays, so
+// there's nothing to sort there. Used both to list alarms on the step page
+// (recomputed at render time, never persisted) and by the step editor's Save
+// (persisted, so a freshly-added alarm sits wherever you left it for the
+// rest of that edit but reflows into place the moment you navigate away).
+export function sortTimeAlarms(timeAlarms) {
+  return [...timeAlarms].sort((a, b) => a.atMs - b.atMs);
+}
+
+export function sortTempAlarms(tempAlarms) {
+  return [...tempAlarms].sort((a, b) => {
+    if (a.direction !== b.direction) return a.direction === "heating" ? -1 : 1;
+    return a.direction === "heating" ? a.thresholdC - b.thresholdC : b.thresholdC - a.thresholdC;
+  });
+}
+
 // The duration-reached alarm's id, derived from the step id alone (a step
 // has at most one) — shared by buildStepAlarmDefs, app.js's extend-duration
 // flow, and engine.js's notification wiring, so the naming convention lives

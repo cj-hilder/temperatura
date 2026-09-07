@@ -1,5 +1,5 @@
 import { Store, MemoryBackend, STORES, DEFAULT_THEME_ID } from './src/lib/storage.js';
-import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId } from './src/lib/recipe.js';
+import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId, sortTimeAlarms, sortTempAlarms } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -259,6 +259,31 @@ console.log('\nbuildStepAlarmDefs — bridges recipe.js\'s storage shape to alar
 
   defs = buildStepAlarmDefs(step);
   ok('no extension option leaves the duration unaffected', defs.find((d) => d.kind === 'duration').atMs === 1_800_000);
+}
+
+console.log('\nsortTimeAlarms — ascending atMs:');
+{
+  const alarms = [
+    { id: 'a', atMs: 300_000 },
+    { id: 'b', atMs: 60_000 },
+    { id: 'c', atMs: 180_000 },
+  ];
+  const sorted = sortTimeAlarms(alarms);
+  ok('ascending by atMs', sorted.map((a) => a.id).join(',') === 'b,c,a');
+  ok('does not mutate the input array', alarms.map((a) => a.id).join(',') === 'a,b,c');
+}
+
+console.log('\nsortTempAlarms — heating ascending, then cooling descending:');
+{
+  const alarms = [
+    { id: 'cool-low', direction: 'cooling', thresholdC: 10 },
+    { id: 'heat-high', direction: 'heating', thresholdC: 80 },
+    { id: 'cool-high', direction: 'cooling', thresholdC: 40 },
+    { id: 'heat-low', direction: 'heating', thresholdC: 30 },
+  ];
+  const sorted = sortTempAlarms(alarms);
+  ok('heating group first, ascending; cooling group after, descending',
+    sorted.map((a) => a.id).join(',') === 'heat-low,heat-high,cool-high,cool-low');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
