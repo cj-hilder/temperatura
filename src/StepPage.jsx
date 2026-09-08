@@ -130,7 +130,6 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
     <div style={t.page}>
       <div style={t.iconRow}>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
-        <button style={t.iconButton} title="Back" onClick={() => navigate({ view: "recipe", recipeId })}>←</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
         {instance && (
           <button
@@ -164,12 +163,16 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
 
       <div style={{ padding: "0 16px" }}>
         <div
-          style={{ fontSize: 13, fontWeight: 600, color: t.colors.textMuted, cursor: "pointer" }}
+          style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 20, cursor: "pointer" }}
           onClick={() => navigate({ view: "recipe", recipeId })}
         >
-          {recipe.name}
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.colors.text }}>←</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.colors.textMuted }}>{recipe.name}</span>
         </div>
-        <h1 style={{ marginTop: 0, marginBottom: 4 }}>{step.name}</h1>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+          <h1 style={{ margin: 0 }}>{step.name}</h1>
+          <span style={{ fontSize: 16, color: t.colors.text }}>step {stepIndex + 1} of {recipe.steps.length}</span>
+        </div>
         <p style={{ color: t.colors.textMuted }}>{step.description}</p>
         <p style={{ fontSize: 12, color: t.colors.textMuted, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span>

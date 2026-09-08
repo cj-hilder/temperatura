@@ -125,9 +125,8 @@ This check can't be perfect. A batch set aside between two steps (nothing curren
 
 If more than one instance of this step is currently in progress, swipe left/right to see other instances.
 
-Icon row at the top: home, back, edit, thermometer, hamburger, connect
+Icon row at the top: home, edit, thermometer, hamburger, connect
 
-* Back: back to the recipe page  
 * Edit: all of the step components become editable \- tap a component to edit it, you can also add and delete alarms  
 * Thermometer: multiple steps can be in progress at one time, but the thermometer can only be in one place at a time, so this icon allows you to ‘claim’ the thermometer for this step. For example: you might be rising bread for a duration of 40 mins and a temperature band of 35-40 degrees, and coagulating tofu for a duration of 20 mins and a temperature band of 75-85 degrees, both simultaneously. If you claim the thermometer for the tofu then the bread has to rise without temperature monitoring or alarms (but it will still get the ‘duration reached’ time alarm and any other time alarms). Even if you are doing two simultaneous batches of tofu, you have to claim the thermometer for one of them.
 
@@ -143,7 +142,7 @@ The claim only exists to decide which instance the temperature readings apply to
 
 The main page contains
 
-A small heading showing the recipe's name, above the step name — tapping it goes back to the recipe page, the same destination as the Back icon.
+A back arrow and a small heading showing the recipe's name, above the step name — either one goes back to the recipe page (the icon row's own Back icon is gone; this replaces it). To the immediate right of the step name, in normal body-sized text, "step X of Y" gives the step's position among the recipe's steps.
 
 Current temperature (if connected and the thermometer is claimed by this instance)
 
