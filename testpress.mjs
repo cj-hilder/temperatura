@@ -1,6 +1,6 @@
 import {
-  parseMeasurementPacket, resetPressBaseline, applyPressBaseline, createFakeThermometer,
-} from './src/lib/thermometer.js';
+  parseMeasurementPacket, resetPressBaseline, applyPressBaseline, fthermDriver,
+} from './src/lib/probes/ftherm.js';
 import { silenceEarliest } from './src/lib/alarms.js';
 
 let pass = 0, fail = 0;
@@ -69,25 +69,17 @@ console.log('\nPress-count baselining:');
   ok('a cold-restart reset (also a negative diff) is treated as exactly one press', r.presses === 1);
 }
 
-console.log('\nFakeThermometer:');
+console.log('\nfthermDriver.parse — the driver reads a DataView, even one with a byte offset:');
 {
-  const therm = createFakeThermometer();
-  let measurements = [];
-  let disconnects = 0;
-  await therm.connect({ onMeasurement: (s) => measurements.push(s), onDisconnect: () => disconnects++ });
-  ok('reports connected after connect()', therm.isConnected() === true);
-
-  therm._emit({ seq: 1, tempC: 20, battery: 90, pressCount: 0, probePresent: true, buttonHeld: false }, 1000);
-  ok('delivers an emitted measurement to the handler', measurements.length === 1 && measurements[0].tempC === 20);
-  ok('tracks lastPacketAt from the emitted sample', therm.getLastPacketAt() === 1000);
-
-  therm.disconnect();
-  ok('reports disconnected after disconnect()', therm.isConnected() === false);
-  ok('fires onDisconnect exactly once', disconnects === 1);
-
-  let threw = false;
-  try { therm._emit({ tempC: 1 }); } catch { threw = true; }
-  ok('emitting while disconnected throws (a test-harness guard, not app behaviour)', threw);
+  const packet = buildPacket({ seq: 7, tempCenti: 1999, battery: 55, pressCount: 9, probePresent: true });
+  // Embed the 8 bytes at an offset inside a bigger buffer, as a Bluetooth
+  // value can arrive — `.buffer` alone would read the wrong bytes.
+  const big = new Uint8Array(16);
+  big.set(new Uint8Array(packet), 4);
+  const s = fthermDriver.parse(new DataView(big.buffer, 4, 8));
+  ok('temperature read from the right bytes', s.tempC === 19.99);
+  ok('battery and press count read from the right bytes', s.battery === 55 && s.pressCount === 9);
+  ok('FTHERM has a button and a heartbeat freshness rule', fthermDriver.hasButton === true && fthermDriver.freshness.type === 'heartbeat');
 }
 
 console.log('\nPresses swallowed when nothing is sounding:');

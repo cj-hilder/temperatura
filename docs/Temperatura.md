@@ -12,9 +12,16 @@ A sans-serif font. Colour theme to be cool blues, based off the supplied icon ba
 
 ## Temperature monitoring
 
-Temperature data comes from the FeatherThermometer via BLE connection. The BLE connection supplies temperature, battery level, and button press data. The button press data is used to cancel/silence alarms. 
+Temperature data comes from one or more **probes** connected via BLE. Several probes can be connected at the same time. Two kinds are supported:
 
-Wherever the current temperature is shown (Home, Recipe, Step), the battery level is shown on the same line, right-justified, as a battery icon — not as a separate line, and not shown at all when there is no current-temperature line to attach to (i.e. never shown while disconnected). The icon turns red at 15% or below.
+* **FTHERM** — our own FeatherThermometer. Supplies temperature, battery level, and button press data. The button press data is used to cancel/silence alarms.
+* **BBQ** — a commercial probe (Dialog DA14531 based, advertises as "BBQ"). Supplies temperature and battery level, but no button. It disconnects from Bluetooth while it is charging and reconnects when charging stops.
+
+The user adds each probe once (it is remembered, with a name the user can change), connects and disconnects them from the Probes panel (the connect icon), and allocates a connected probe to a step that is in progress — see Probe assignment. The sections below say "the thermometer" when what they describe is true of any probe.
+
+Wherever a current temperature is shown (Home, Recipe, Step), the battery level, if the probe reports one, is shown on the same line, right-justified, as a battery icon — not as a separate line, and not shown at all when there is no current-temperature line to attach to (i.e. never shown while disconnected). The icon turns red at 15% or below. A probe that reports no battery level simply shows no icon.
+
+The Android Bluetooth stack limits how many devices can be connected at once, and each FTHERM accepts only one connection at a time (it stops advertising while connected). The app does not try to work around either limit.
 
 ## A recipe consists of
 
@@ -73,9 +80,9 @@ Icon row at the top: open, new, search, hamburger, connect
 * Open: open a recipe from app local storage  
 * New: create a new (blank) recipe  
 * Search: free text search through all names and description of all recipes in storage  
-* Connect: because this is an Android-only PWA the user must initiate the BlueTooth connection to the thermometer 
+* Connect: because this is an Android-only PWA the user must initiate the BlueTooth connection to a probe. The icon opens the Probes panel: a list of the probes the app knows about, each with its name, kind, connection state, current reading, battery level (if any), and the recipe step it is currently allocated to (if any), with Connect/Disconnect, Rename and Forget for each, and an "Add probe" button that opens the browser's device picker (listing both FTHERM and BBQ devices). The icon itself shows blue if any probe is connected, yellow while any is connecting or reconnecting, otherwise white. 
 
-Current temperature (if connected). This is the raw device reading, shown independent of any claim - it is what the thermometer is reporting, not the temperature "for" any particular step.  
+Current temperature (if any probe is connected): one line per connected probe, showing the probe's name and its raw reading. This is shown independent of any assignment - it is what the probe is reporting, not the temperature "for" any particular step.  
 A collection of tiles, vertically stacked, one for each open recipe. Each tile contains
 
 * Recipe name  
@@ -95,7 +102,7 @@ Icon row at the top: home, edit, hamburger, connect
 
 * Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps. Steps are also draggable by a handle to reorder them — the order set here is the order steps are listed in throughout the app (this page's own step tiles, and Previous/Next on the step page).
 
-Current temperature (if connected). Raw device reading, as on the home page.  
+Current temperature (if any probe is connected): one line per connected probe, raw readings, as on the home page.  
 The main page contains
 
 1. Name  
@@ -128,23 +135,24 @@ If more than one instance of this step is currently in progress, swipe left/righ
 Icon row at the top: home, edit, thermometer, hamburger, connect
 
 * Edit: all of the step components become editable \- tap a component to edit it, you can also add and delete alarms  
-* Thermometer: multiple steps can be in progress at one time, but the thermometer can only be in one place at a time, so this icon allows you to ‘claim’ the thermometer for this step. For example: you might be rising bread for a duration of 40 mins and a temperature band of 35-40 degrees, and coagulating tofu for a duration of 20 mins and a temperature band of 75-85 degrees, both simultaneously. If you claim the thermometer for the tofu then the bread has to rise without temperature monitoring or alarms (but it will still get the ‘duration reached’ time alarm and any other time alarms). Even if you are doing two simultaneous batches of tofu, you have to claim the thermometer for one of them.
+* Thermometer: multiple steps can be in progress at one time, but each probe can only be in one place at a time, so this icon lets you choose which connected probe is used for this step. For example: you might be rising bread for a duration of 40 mins and a temperature band of 35-40 degrees, and coagulating tofu for a duration of 20 mins and a temperature band of 75-85 degrees, both simultaneously. With two probes you can give each step its own. With only one probe, if you use it for the tofu then the bread has to rise without temperature monitoring or alarms (but it will still get the ‘duration reached’ time alarm and any other time alarms). Even if you are doing two simultaneous batches of tofu, each needs its own probe to be monitored.
 
-##### Claim lifecycle
+##### Probe assignment
 
-The claim only exists to decide which instance the temperature readings apply to, for in-band accumulation and for temperature alarms. If no instance is running, the notion of a claim is irrelevant and the app holds no claim.
+A step instance **uses** at most one probe, and a probe is used by at most one instance (one-to-one). Which probe an instance uses decides which readings apply to it, for in-band accumulation and for temperature alarms. An instance that uses no probe is **unassigned**; this is the normal state for a step with no temperature interest, and a legitimate one for any other.
 
-* When an instance starts it automatically takes the claim, unless another instance already holds it. A new instance never takes the claim away from a holding instance.
-* If the instance holding the claim ends (Complete), and other instances are still running, the thermometer becomes **unclaimed**. It is not handed on automatically. This state must be allowed, because otherwise the app would be assuming the user physically moves the probe from one place to another the instant a step completes, which is not true.
-* An unclaimed thermometer stays unclaimed until the user taps the thermometer icon on some instance's step page to claim it.
-* The thermometer icon is a **toggle**. Tapping it on the instance that currently holds the claim releases the claim, leaving the thermometer unclaimed. So if the user starts a step that is the only instance running, and does not want the thermometer associated with that step, they tap the icon once to drop the automatic claim.
-* Tapping the icon on an instance that does not hold the claim gives the claim to that instance. If another instance held it, the claim transfers, because the user tapping the icon is the user telling the app they have physically moved the probe. The "never takes the claim" rule above governs automatic acquisition at Start only, not a deliberate tap.
+* When an instance starts, if it uses no probe and exactly one connected probe is not used by any in-progress instance, it automatically uses that probe. If there are no free connected probes it stays unassigned, and if there are several free ones it also stays unassigned (the app will not guess which one the user put in the pot) — the user chooses with the thermometer icon.
+* A new instance never takes a probe away from an instance that is using it.
+* If an instance that is using a probe ends (Complete), the probe becomes free. It is not handed on automatically. This must be allowed, because otherwise the app would be assuming the user physically moves the probe from one place to another the instant a step completes, which is not true.
+* The thermometer icon on a step page opens a list of the connected probes. Each shows its name and current reading; one that another instance is using also shows which step. Choosing a probe makes this instance use it. Choosing "None" releases the one it is using.
+* Choosing a probe that another instance is using **transfers** it to this instance (that instance becomes unassigned), because the user choosing it is the user telling the app they have physically moved the probe. The "never takes a probe" rule above governs automatic assignment at Start only, not a deliberate choice. Choosing a different probe for an instance that already uses one replaces it.
+* A probe that disconnects stays assigned to its instance, so that when it reconnects the step carries on with it. Forgetting a probe releases it. Assignments are stored, so they survive the app being closed or killed, like everything else about a running instance.
 
 The main page contains
 
 A back arrow and a small heading showing the recipe's name, above the step name — either one goes back to the recipe page (the icon row's own Back icon is gone; this replaces it). To the immediate right of the step name, in normal body-sized text, "step X of Y" gives the step's position among the recipe's steps.
 
-Current temperature (if connected and the thermometer is claimed by this instance)
+Current temperature (if connected): the reading from the probe this instance uses, labelled with the probe's name. On a step that is not yet started, it shows the reading from the probe that Start would automatically assign, if there is exactly one.
 
 #### Step controls
 
@@ -286,6 +294,8 @@ A row for the duration-reached alarm also carries an **Extend** button beside Si
 
 The thermometer button and the Android back button both resolve the single earliest outstanding alarm across every instance (silencing if it's sounding, dismissing if it's already missed) — the same "earliest first" rule as before, just spanning both states now. Both are swallowed with no effect if nothing is outstanding.
 
+Each FTHERM keeps its own press-count baseline, and a press from any FTHERM does the same thing: it resolves the single earliest outstanding alarm across every instance, whichever probe sent the press and whichever instance (if any) that probe is assigned to. A BBQ probe has no button.
+
 Press-count arithmetic: if presses are received when no alarm is sounding, they are swallowed. If one alarm sounds, and the user presses twice, the alarm is silenced and the second press is swallowed. When the counter wraps or a cold restart of the Feather we will see the count go down instead of up. Treat the count going down as a single button press.
 
 The press count is a uint8 in the MEASUREMENT packet, so what the app acts on is the difference between consecutive packets, not the absolute value. That difference is only meaningful within a continuous stream of packets:
@@ -342,9 +352,9 @@ If several alarms are sounding, each has its own notification and its own tag, s
 
 ## In-band accumulation
 
-If the BLE connection is lost, or the thermometer is claimed by another instance after starting to accumulate in-band time, then the timer continues with the last value it had. That is, it continues to count in-band if the last data point was in-band, and vice versa. If an instance never has any temperature data (no BLE, other instance has thermometer throughout) then it accumulates in-band time from the start (assume in-band if no data available, assume last data remains valid if data flow stops)
+If the BLE connection is lost, or the probe is taken by another instance after this one has started to accumulate in-band time, then the timer continues with the last value it had. That is, it continues to count in-band if the last data point was in-band, and vice versa. If an instance never has any temperature data (no BLE, another instance uses the only probe throughout) then it accumulates in-band time from the start (assume in-band if no data available, assume last data remains valid if data flow stops)
 
-The "assume in-band if no data available" default only applies to an instance that holds no claim at all (or never gets one) — it does not apply to a claimed instance before its very first real measurement. A claimed instance is actively expecting a reading any moment (the connection already exists), and on real hardware the first packet after claiming can take a few seconds to arrive; assuming in-band for that gap silently hands out real elapsed time — and permanently marks the run as "≈ estimated" — for a step that was never actually without a thermometer. A claimed instance therefore counts nothing at all (shows "waiting for temperature") until its first real measurement, then behaves exactly as measured data dictates from then on. Once a claimed instance has been measured at least once, every later gap is an ordinary continuation per the paragraph above, regardless of claim.
+The "assume in-band if no data available" default only applies to an instance that uses no probe at all (or never gets one) — it does not apply to an instance that uses a probe before its very first real measurement. Such an instance is actively expecting a reading any moment (the connection already exists), and on real hardware the first packet after assignment can take a few seconds to arrive ; assuming in-band for that gap silently hands out real elapsed time — and permanently marks the run as "≈ estimated" — for a step that was never actually without a thermometer. Such an instance therefore counts nothing at all (shows "waiting for temperature") until its first real measurement, then behaves exactly as measured data dictates from then on. Once it has been measured at least once, every later gap is an ordinary continuation per the paragraph above, regardless of assignment.
 
 #### Measured vs assumed time
 
@@ -352,8 +362,8 @@ The rules above mean an instance can accumulate in-band time on assumption rathe
 
 At any moment an instance with an 'in temperature band' duration is in one of two provenance states:
 
-* **Measured** – this instance holds the claim, packets are arriving within the 5 second timeout, and the reading is valid (probe present, not the 0x8000 sentinel). In-band or out-of-band is being decided by live data.
-* **Assumed** – anything else: the thermometer is unclaimed, another instance holds it, the connection is down, or the reading is unusable. In-band or out-of-band is being carried forward per the rules above.
+* **Measured** – this instance uses a probe, that probe's data is fresh (see "Data freshness" under Bluetooth specification), and the reading is valid (probe present, not the 0x8000 sentinel for an FTHERM). In-band or out-of-band is being decided by live data.
+* **Assumed** – anything else: no probe is assigned, the probe's connection is down, or the reading is unusable. In-band or out-of-band is being carried forward per the rules above.
 
 This gives four progress bar states, and they must be visually distinct:
 
@@ -409,36 +419,64 @@ Running instances survive the app being killed. A 40-minute rise or a 6-hour fer
 
 ## Bluetooth specification
 
-See the file FeatherThermometer.ino for details.  
-Use GATT. Subscribe to the 8-byte custom MEASUREMENT characteristic (`b7e1c0a0-4f3d-4a21-9f3e-6c1a2d5b7e02`). The custom 128-bit UUID must be listed in `optionalServices` on `requestDevice`. Manage the device back button as in RTW (backGuard.js) to get user to confirm before exit.
+Each kind of probe has a **driver**: the picker filter and service it needs, how to read its data, and what it can report. Every probe is a separate GATT connection, managed independently (connect, reconnect, data freshness). Manage the device back button as in RTW (backGuard.js) to get user to confirm before exit.
+
+#### Probe kinds
+
+**FTHERM.** See the file FeatherThermometer.ino for details. Use GATT. Subscribe to the 8-byte custom MEASUREMENT characteristic (`b7e1c0a0-4f3d-4a21-9f3e-6c1a2d5b7e02`) of service `b7e1c0a0-4f3d-4a21-9f3e-6c1a2d5b7e01`. Picker filter: name starting `FTHERM`. Reports temperature, battery, button presses and probe presence. Data is a steady stream (about 1.3 Hz).
+
+**BBQ.** Commercial probe, name "BBQ", Dialog Semiconductor DA14531. Advertises service `18424398-7cbc-11e9-8f9e-2a86e4085a59`, which is also its picker filter (the name alone is too generic to filter on). Use GATT. Subscribe to the single notify characteristic `772ae377-b3d2-ff8e-1042-5481d1e03456`. Each notification is raw bytes: the **first byte is the battery level as an 8-bit integer, 0 to 100** (it only looks like a letter in a hex dump — 0x64 is 100%, shown as `d`, and 0x57 is 87%, shown as `W`; it must be read as a number, never as text), and **the rest is the temperature in °C as an ASCII decimal string**, e.g. `64-31-37-2E-36` is 100% and 17.6 °C. A first byte above 100 is not a percentage, so no battery level is reported for that notification; a remainder that is not a decimal number counts as "no data". Reports temperature and battery only. **It notifies when the value changes, not at a steady rate** — silences of 40 seconds or more were observed with the temperature steady — but it does send a reading when the connection is made. There is no "probe unplugged" state: charging is what makes it disconnect (see Disconnect and reconnect).
+
+**BBQ dip filter.** The BBQ's readings periodically come in low by about 1.6 °C for exactly one notification, never two in a row, then recover. Left alone each dip would cross band edges and fire temperature alarms for a temperature the food never had, so BBQ readings are filtered before anything — the display, in-band accumulation, temperature alarms — sees them:
+
+* A reading more than 0.9 °C below the previous reading (strictly more; ordinary reading-to-reading change is 0.1–0.3 °C) is suspected to be a dip: the previous value stays shown.
+* The reading straight after a suspected dip is never itself suspected, so a genuine sustained drop gets through on its second reading.
+* Every other reading is shown as the average of itself and the last reading used, which smooths noise at little cost in responsiveness. The first reading after a connection is shown as it is.
+* Because the BBQ only notifies on change, a genuine drop is followed by no further reading at all. A suspected dip that nothing contradicts within 5 seconds (a real dip's correction arrives about 1.6 s later) is accepted as the true reading, otherwise the display would stay stuck on the old value.
+* Reconnecting starts the filter afresh, so nothing held before a charging gap survives it.
+
+The FTHERM is not filtered.
+
+The picker (`requestDevice`) offers both kinds at once: the filters are the union of the drivers' filters, and every driver's service is listed in `optionalServices`. The custom 128-bit UUIDs must be listed there or the services cannot be accessed.
 
 #### Connecting
 
-Connect always requires a user gesture, but it does not always require the device picker. Follow the three-tier path in ble-hr-tool.zip (Manawa Pace), in the `connectBtn` click handler:
+Connect always requires a user gesture, but it does not always require the device picker. Follow the three-tier path in ble-hr-tool.zip (Manawa Pace), in the `connectBtn` click handler, **per probe**:
 
-1. **Already connected.** If a device reference is held and `gatt.connected` is true, just restore the UI. Do not reconnect.
-2. **Previously paired.** Call `navigator.bluetooth.getDevices()`. If it returns a device, use the gesture to drive `gatt.connect()` on it directly, retrying up to 3 times at 3 second intervals, since the Feather may take a few seconds to start advertising again after a disconnect. This is the path that matters after Chrome has discarded the tab mid-ferment: the user taps Connect once and is back on the same thermometer with no device list.
-3. **Picker.** Only if the above finds nothing or fails, call `requestDevice()`. Clear any stale non-connected device reference first, because some browsers block the picker while an abandoned reference is still held.
+1. **Already connected.** If a device reference is held for that probe and `gatt.connected` is true, just restore the UI. Do not reconnect.
+2. **Previously paired.** Call `navigator.bluetooth.getDevices()` and pick out the device whose `id` matches the probe (never just the first device returned — several probes may have been permitted). Use the gesture to drive `gatt.connect()` on it directly, retrying up to 3 times at 3 second intervals, since a probe may take a few seconds to start advertising again after a disconnect. This is the path that matters after Chrome has discarded the tab mid-ferment: the user taps Connect once and is back on the same probe with no device list.
+3. **Picker.** Only if the probe is new, or the above finds nothing or fails, call `requestDevice()`. Clear any stale non-connected device reference first, because some browsers block the picker while an abandoned reference is still held. Adding another probe needs its own tap and its own picker, because the picker returns one device per call.
 
-So a page reload loses the JS device reference but not the browser's permission for the device, and Connect after a reload should not show the user a picker.
+So a page reload loses the JS device references but not the browser's permission for the devices, and Connect after a reload should not show the user a picker.
+
+The app remembers each probe it has connected to (its id, kind and a name the user can change; the first FTHERM is named "FTHERM 1", the first BBQ "BBQ 1", and so on). Forgetting a probe removes it from that list and releases it from any step using it.
 
 #### Disconnect and reconnect
 
-Listen for `gattserverdisconnected`. On an unexpected disconnect while any instance is running, retry `gatt.connect()` on a backoff, as Manawa Pace does; a long press on the thermometer's button is a legitimate power-off, so give up after a bounded number of attempts and null the device reference so the next Connect starts clean. Every (re)connect re-seeds the press-count baseline (see How alarms work).
+Listen for `gattserverdisconnected` on every probe. On an unexpected disconnect while any instance is running, retry `gatt.connect()` on that probe on a backoff, as Manawa Pace does; a long press on an FTHERM's button is a legitimate power-off, so give up after a bounded number of attempts and null the device reference so the next Connect starts clean. Every (re)connect re-seeds that probe's press-count baseline (see How alarms work). One probe dropping does not affect the others. A BBQ that goes away to charge will normally outlast the bounded retries; when charging stops, the user taps Connect for it in the Probes panel (a previously permitted probe reconnects without the picker).
+
+#### Data freshness
+
+Whether a probe's data is **fresh** is decided per kind, because a steady stream and a notify-on-change stream mean different things by silence:
+
+* **FTHERM** (steady stream): fresh while a MEASUREMENT packet has arrived within the last 5 seconds.
+* **BBQ** (notify-on-change): fresh for as long as the connection is up. Silence only means the value has not changed. Once the connection drops it stops being fresh after the same 5 seconds, counted from the disconnect.
+
+Everything below that talks about "no packet for 5 seconds" or "lost data" means "not fresh" in this sense.
 
 #### BLE-data-loss alarm
 
-The timeout is 5 seconds without a MEASUREMENT packet.
+The timeout is 5 seconds without fresh data from the probe an instance uses (see Data freshness).
 
 The alarm fires only when the missing data would actually change something, i.e. when all of the following hold:
 
 * an instance is running, and
-* that instance holds the claim, and
+* that instance uses a probe, and
 * that instance has a temperature band or at least one temperature alarm.
 
-If the thermometer is unclaimed, or the claiming instance has neither a temperature band nor any temperature alarms, no BLE-data-loss alarm is fired. An unclaimed thermometer is a normal state (see Claim lifecycle), not a fault, so it must not nag.
+If the instance uses no probe, or it has neither a temperature band nor any temperature alarms, no BLE-data-loss alarm is fired. An unassigned instance is a normal state (see Probe assignment), not a fault, so it must not nag. A probe that is not assigned to anything never raises the alarm either.
 
-When the probe is absent (flags bit0) or temperature reads the 0x8000 sentinel, show ‘no data’ where the temperature would be displayed. Note this is distinct from data loss: packets are still arriving, so the 5 second timeout does not run, but there is no usable reading. In-band accumulation treats it exactly as it treats a lost connection - carry on with the last known in-band or out-of-band state.
+When the probe is absent (FTHERM flags bit0) or temperature reads the 0x8000 sentinel, or a BBQ notification can't be read, show ‘no data’ where the temperature would be displayed. Note this is distinct from data loss: the connection is fine, but there is no usable reading. In-band accumulation treats it exactly as it treats a lost connection - carry on with the last known in-band or out-of-band state.
 
 ## History
 

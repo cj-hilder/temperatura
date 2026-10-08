@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
-import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
+import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function HomePage({ engine, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer, closeRecipe } = engine;
+export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes }) {
+  const { app, refresh, openRecipes, closeRecipe } = engine;
   const [picker, setPicker] = useState(null); // null | "open" | "search"
   const [allRecipes, setAllRecipes] = useState([]);
   const [query, setQuery] = useState("");
@@ -55,16 +55,10 @@ export default function HomePage({ engine, navigate, onOpenMenu }) {
         <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}><SearchIcon /></button>
         <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
-        <button
-          style={t.iconButton}
-          title="Connect to thermometer"
-          onClick={connectionState === "connected" ? disconnectThermometer : connectThermometer}
-        >
-          {connectionState === "connected" ? "🔵" : connectionState === "disconnected" ? "⚪" : "🟡"}
-        </button>
+        <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>
 
-      {connectionState === "connected" && latestSample && <CurrentTemperatureLine sample={latestSample} />}
+      <ProbeTemperatureLines engine={engine} />
 
       <h4 style={{ padding: "0 16px" }}>Recipes</h4>
       {openRecipes.length === 0 && (

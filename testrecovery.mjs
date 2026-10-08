@@ -18,11 +18,11 @@ console.log('\nKill mid-instance while running, resume: the gap counts as runnin
   const stepAlarmDefs = [];
   const tempBand = { lowC: 20, highC: 30 };
 
-  const instance = await app1.startInstance({ id: 'inst-1', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
-  ok('starting the first instance auto-acquires the claim', await app1.getClaimHolderId() === 'inst-1');
+  const instance = await app1.startInstance({ id: 'inst-1', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs, freeProbeIds: ['probe-1'] });
+  ok('starting with exactly one free connected probe auto-assigns it', (await app1.getProbeAssignments())['inst-1'] === 'probe-1');
 
   clock += 1000;
-  await app1.tick('inst-1', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: 25, msSinceLastPacket: 100, readingValid: true });
+  await app1.tick('inst-1', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: 25, msSinceLastPacket: 100, readingValid: true, claimed: true });
   ok('running with a live in-band reading accumulates', (await app1.store.getInstance('inst-1')).accumulatedInBandMs === 1000);
 
   // "App killed" — no clean shutdown, just stop using app1. 60s pass with the
@@ -34,7 +34,7 @@ console.log('\nKill mid-instance while running, resume: the gap counts as runnin
   ok('the instance itself survived (same backend)', reloaded.status === 'running');
 
   // On relaunch there's no live BLE connection yet — same tick() call, no data.
-  const result = await app2.tick('inst-1', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: null, msSinceLastPacket: null, readingValid: false });
+  const result = await app2.tick('inst-1', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: null, msSinceLastPacket: null, readingValid: false, claimed: true });
   ok('the entire closed-app gap is folded in as in-band time (carried-forward state)', result.instance.accumulatedInBandMs === 1000 + 60000, result.instance.accumulatedInBandMs);
   ok('the gap being unmeasured latches the estimate flag', result.instance.latchedEstimate === true);
   ok('elapsedRunningMs also reflects the whole gap (no pauses involved)', app2.elapsedRunningMs(result.instance) === 61000);
@@ -76,8 +76,8 @@ console.log('\nLatched estimate flag survives a restart:');
 
   const app1 = mkApp();
   const recipe = await app1.createRecipe({ name: 'Tofu', description: '', notes: [], servings: '', ingredients: [], steps: [] });
-  // A dummy instance takes the claim first, so inst-3 genuinely never holds
-  // it — starting inst-3 alone would auto-acquire the claim (first instance
+  // inst-3 is never given a probe (no freeProbeIds, and tick() below isn't
+  // told it is claimed) — historically a dummy instance had to take the claim first (first instance
   // always does), which would defeat the point: the "assumes in-band from
   // the start" default only applies pre-measurement when unclaimed.
   await app1.startInstance({ id: 'inst-dummy', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
@@ -95,7 +95,7 @@ console.log('\nLatched estimate flag survives a restart:');
   ok('latchedEstimate survived the restart', reloaded.latchedEstimate === true);
 }
 
-console.log('\nClaim state survives a restart:');
+console.log('\nProbe assignment survives a restart, and is released on Complete:');
 {
   const backend = new MemoryBackend();
   let clock = 0;
@@ -103,14 +103,14 @@ console.log('\nClaim state survives a restart:');
 
   const app1 = mkApp();
   const recipe = await app1.createRecipe({ name: 'Bread', description: '', notes: [], servings: '', ingredients: [], steps: [] });
-  await app1.startInstance({ id: 'inst-4', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
-  ok('claim acquired on start', await app1.getClaimHolderId() === 'inst-4');
+  await app1.startInstance({ id: 'inst-4', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [], freeProbeIds: ['probe-1'] });
+  ok('probe assigned on start', (await app1.getProbeAssignments())['inst-4'] === 'probe-1');
 
   const app2 = mkApp();
-  ok('claim holder survives a restart', await app2.getClaimHolderId() === 'inst-4');
+  ok('the assignment survives a restart', (await app2.getProbeAssignments())['inst-4'] === 'probe-1');
 
   await app2.completeInstance('inst-4');
-  ok('completing the holder releases the claim', await app2.getClaimHolderId() === null);
+  ok('completing the instance releases its probe', Object.keys(await app2.getProbeAssignments()).length === 0);
 }
 
 console.log('\nDuration-reached alarm basis matches the progress bar\'s own metric, not a single universal clock:');
@@ -156,21 +156,21 @@ console.log('\nDuration-reached alarm basis matches the progress bar\'s own metr
   clock += 2000; // in band
   let result = await app.tick('inst-inband', {
     stepAlarmDefs, hasTempInterest: true, tempBand, duration,
-    tempC: 25, msSinceLastPacket: 100, readingValid: true,
+    tempC: 25, msSinceLastPacket: 100, readingValid: true, claimed: true,
   });
   ok('2s in-band: not yet reached (needs 4s in-band)', result.newlyFired.length === 0);
 
   clock += 2000; // out of band — running time now at 4000ms, but in-band time still only 2000ms
   result = await app.tick('inst-inband', {
     stepAlarmDefs, hasTempInterest: true, tempBand, duration,
-    tempC: 99, msSinceLastPacket: 100, readingValid: true,
+    tempC: 99, msSinceLastPacket: 100, readingValid: true, claimed: true,
   });
   ok('4s running but only 2s in-band: does not fire on running time', result.newlyFired.length === 0);
 
   clock += 2000; // back in band — in-band time now 4000ms
   result = await app.tick('inst-inband', {
     stepAlarmDefs, hasTempInterest: true, tempBand, duration,
-    tempC: 25, msSinceLastPacket: 100, readingValid: true,
+    tempC: 25, msSinceLastPacket: 100, readingValid: true, claimed: true,
   });
   ok('fires once accumulated in-band time (not running time) reaches the threshold',
     result.newlyFired.some((f) => f.id === 'd2'));
@@ -218,7 +218,7 @@ console.log('\nExtend: temporary per-instance duration extension, end to end thr
   ok('a second extension adds on top of the first', twiceExtended.durationExtensionMs === 4000);
 }
 
-console.log('\nStarting a claimed instance well outside the band does not clock up erroneous in-band time:');
+console.log('\nStarting an instance that uses a probe, well outside the band does not clock up erroneous in-band time:');
 {
   // The reported bug: on real hardware, the thermometer already being
   // claimed and connected doesn't mean the FIRST packet has arrived yet —
@@ -234,14 +234,14 @@ console.log('\nStarting a claimed instance well outside the band does not clock 
   const duration = { ms: 60_000, kind: 'inBand' };
 
   await app.startInstance({ id: 'inst-outside', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
-  ok('auto-acquires the claim as the only instance', await app.getClaimHolderId() === 'inst-outside');
+  ok('(no probe assigned here, but tick() is told it is claimed below)', true);
 
   // A few ticks with no packet yet — connection still warming up.
   for (let i = 0; i < 4; i++) {
     clock += 1000;
     await app.tick('inst-outside', {
       stepAlarmDefs: [], hasTempInterest: true, tempBand, duration,
-      tempC: null, msSinceLastPacket: null, readingValid: false,
+      tempC: null, msSinceLastPacket: null, readingValid: false, claimed: true,
     });
   }
   let instance = await app.store.getInstance('inst-outside');
@@ -252,7 +252,7 @@ console.log('\nStarting a claimed instance well outside the band does not clock 
   clock += 1000;
   await app.tick('inst-outside', {
     stepAlarmDefs: [], hasTempInterest: true, tempBand, duration,
-    tempC: 5, msSinceLastPacket: 100, readingValid: true,
+    tempC: 5, msSinceLastPacket: 100, readingValid: true, claimed: true,
   });
   instance = await app.store.getInstance('inst-outside');
   ok('first real (out-of-band) measurement: still zero accumulated — no leftover erroneous time', instance.accumulatedInBandMs === 0);
@@ -421,6 +421,53 @@ console.log('\nMissed status end to end — a repeating alarm retriggers on its 
   await app.dismissAlarm('inst-rep-missed', repId);
   instance = await app.store.getInstance('inst-rep-missed');
   ok('can still be dismissed explicitly', instance.alarmState[repId].missed === false);
+}
+
+console.log('\nProbe assignment housekeeping in app.js — migration, close/delete, forget:');
+{
+  // An install from before multiple probes: a single global claim, one known probe.
+  const backend = new MemoryBackend();
+  const app = createAppController({ backend, now: () => 0 });
+  await app.store.setSetting('claimHolderId', 'old-inst');
+  await app.saveKnownProbes([{ id: 'probe-1', kind: 'ftherm', name: 'FTHERM 1' }]);
+  const migrated = await app.getProbeAssignments();
+  ok('the old single claim migrates onto the one known probe', migrated['old-inst'] === 'probe-1');
+  ok('the legacy key is cleared so it can never migrate twice', (await app.store.getSetting('claimHolderId', null)) === null);
+  ok('a second read is stable', (await createAppController({ backend }).getProbeAssignments())['old-inst'] === 'probe-1');
+
+  // Several known probes: no way to know which one the old claim meant.
+  const b2 = new MemoryBackend();
+  const a2 = createAppController({ backend: b2 });
+  await a2.store.setSetting('claimHolderId', 'old-inst');
+  await a2.saveKnownProbes([{ id: 'p1', kind: 'ftherm', name: 'a' }, { id: 'p2', kind: 'bbq', name: 'b' }]);
+  ok('with several known probes the stale claim is dropped', Object.keys(await a2.getProbeAssignments()).length === 0);
+}
+{
+  const app = createAppController({ backend: new MemoryBackend(), now: () => 0 });
+  const recipe = await app.createRecipe({ name: 'R', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  await app.openRecipe(recipe.id);
+  await app.startInstance({ id: 'i1', recipeId: recipe.id, stepId: 's', stepAlarmDefs: [], freeProbeIds: ['p1'] });
+  ok('probe in use', (await app.getProbeAssignments()).i1 === 'p1');
+  await app.closeRecipe(recipe.id);
+  ok('closing the recipe completes its instances wholesale and still frees their probes', Object.keys(await app.getProbeAssignments()).length === 0);
+
+  const r2 = await app.createRecipe({ name: 'R2', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  await app.startInstance({ id: 'i2', recipeId: r2.id, stepId: 's', stepAlarmDefs: [], freeProbeIds: ['p2'] });
+  await app.deleteRecipe(r2.id);
+  ok('deleting the recipe frees the probe too', Object.keys(await app.getProbeAssignments()).length === 0);
+
+  await app.saveKnownProbes([{ id: 'p3', kind: 'bbq', name: 'BBQ 1' }, { id: 'p4', kind: 'bbq', name: 'BBQ 2' }]);
+  await app.startInstance({ id: 'i3', recipeId: recipe.id, stepId: 's', stepAlarmDefs: [] });
+  await app.assignProbe('i3', 'p3');
+  await app.assignProbe('i4', 'p3');
+  ok('a deliberate assignment transfers the probe', (await app.getProbeAssignments()).i3 === undefined && (await app.getProbeAssignments()).i4 === 'p3');
+  await app.forgetKnownProbe('p3');
+  ok('forgetting a probe releases it and drops it from the known list',
+    Object.keys(await app.getProbeAssignments()).length === 0 && (await app.getKnownProbes()).map((p) => p.id).join() === 'p4');
+
+  await app.assignProbe('i5', 'p4');
+  await app.pruneProbeAssignments([]);
+  ok('pruning drops assignments of instances that are no longer active', Object.keys(await app.getProbeAssignments()).length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -223,8 +223,11 @@ export function advanceInBand(instance, { measured, inBand, claimed }, now) {
   };
 }
 
-// Provenance's "Measured" formula (build-plan: "does this instance hold the
-// claim, how long since the last packet, is the reading valid"). Shared by
+// Provenance's "Measured" formula (build-plan: "does this instance use a
+// probe, is that probe's data fresh, is the reading valid"). `claimed` keeps
+// its old name — it now means "this instance has a probe assigned" — and
+// `msSinceLastPacket` is the probe's freshness (probes/manager.js
+// msSinceFresh), which for a notify-on-change probe is link-based. Shared by
 // the progress-bar state below and by whoever assembles alarms.js's sample
 // (app.js) — one formula, not two copies that could drift apart.
 export function isMeasured({ claimed, msSinceLastPacket, readingValid }) {
@@ -240,25 +243,6 @@ export function isMeasured({ claimed, msSinceLastPacket, readingValid }) {
 export function deriveProvenance({ measured, inBand }) {
   if (measured) return inBand ? "measured-in-band" : "measured-out-of-band";
   return inBand ? "assumed-counting" : "assumed-not-counting";
-}
-
-// Claim: a single global value (an instance id, or null), not a per-instance
-// field — "the thermometer" is one shared resource, not owned by an instance
-// record. These three transitions are the whole lifecycle from the spec.
-
-export function acquireClaimOnStart(claimHolderId, instanceId) {
-  // "A new instance never takes the claim away from a holding instance."
-  return claimHolderId == null ? instanceId : claimHolderId;
-}
-
-export function releaseClaimOnComplete(claimHolderId, completedInstanceId) {
-  return claimHolderId === completedInstanceId ? null : claimHolderId;
-}
-
-export function toggleClaim(claimHolderId, instanceId) {
-  // A deliberate tap always wins, even taking the claim from another holder —
-  // "never auto-take" governs automatic acquisition at Start only.
-  return claimHolderId === instanceId ? null : instanceId;
 }
 
 // Completion tallies (RecipePage's per-step tick counts): starting the

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import StepEditor from "./StepEditor.jsx";
 import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
+import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
 import { buildStepAlarmDefs } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms } from "./stepDisplay.js";
 import { elapsedRunningMs } from "./lib/instances.js";
@@ -8,9 +9,10 @@ import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, claimHolderId, latestSample, connectionState, connectThermometer, disconnectThermometer, completeInstance, requestExtend } = engine;
+export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu, onOpenProbes }) {
+  const { app, refresh, openRecipes, completeInstance, requestExtend } = engine;
   const [editing, setEditing] = useState(false);
+  const [choosingProbe, setChoosingProbe] = useState(false);
   const [index, setIndex] = useState(0);
   const [tagDraft, setTagDraft] = useState(null);
   const closeEditor = async () => {
@@ -81,7 +83,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   const nextStep = stepIndex < recipe.steps.length - 1 ? recipe.steps[stepIndex + 1] : null;
 
   const handleStart = async () => {
-    await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs, isFirstStep: stepIndex === 0 });
+    await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs, isFirstStep: stepIndex === 0, freeProbeIds: engine.freeConnectedProbeIds() });
     await refresh();
   };
   const handlePauseResume = async () => {
@@ -97,13 +99,9 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
     await completeInstance(instance.id); // also silences any alarms still sounding
   };
   const handleDuplicate = async () => {
-    await app.duplicateInstance(instance.id, crypto.randomUUID(), stepAlarmDefs);
+    await app.duplicateInstance(instance.id, crypto.randomUUID(), stepAlarmDefs, engine.freeConnectedProbeIds());
     await refresh();
     setIndex(instances.length); // select the newly-created instance
-  };
-  const handleToggleClaim = async () => {
-    await app.toggleClaim(instance.id);
-    await refresh();
   };
   const commitTag = async () => {
     if (tagDraft !== null) {
@@ -113,11 +111,12 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
     setTagDraft(null);
   };
 
-  const claimed = !!instance && instance.id === claimHolderId;
-  // Mirrors acquireClaimOnStart (instances.js): Start only auto-claims when
-  // nothing currently holds it, so that's also when it's worth showing the
-  // reading here ahead of starting.
-  const wouldAutoClaim = !instance && claimHolderId == null;
+  // The probe this instance uses — or, before Start, the one Start would
+  // automatically assign (autoAssignOnStart: exactly one free connected
+  // probe), so its reading is worth showing ahead of starting.
+  const bound = instance ? engine.probeFor(instance.id) : null;
+  const freeIds = engine.freeConnectedProbeIds();
+  const lineProbe = bound ? bound.probe : !instance && freeIds.length === 1 ? engine.probes.find((p) => p.id === freeIds[0]) : null;
   const progress = instance ? computeStepProgress(instance, step, engine, Date.now()) : null;
   // computeStepProgress only returns a figure when the step has a set
   // duration — spec: no progress bar at all without one. A running instance
@@ -133,25 +132,19 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
         {instance && (
           <button
-            style={{ ...t.iconButton, background: claimed ? "rgba(255,255,255,0.35)" : "transparent", borderRadius: 8 }}
-            title={claimed ? "Release thermometer claim" : "Claim thermometer for this step"}
-            onClick={handleToggleClaim}
+            style={{ ...t.iconButton, background: bound ? "rgba(255,255,255,0.35)" : "transparent", borderRadius: 8 }}
+            title={bound ? `Using ${bound.probe.name} — change probe` : "Choose a probe for this step"}
+            onClick={() => setChoosingProbe(true)}
           >
             🌡️
           </button>
         )}
         <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
-        <button
-          style={t.iconButton}
-          title="Connect to thermometer"
-          onClick={connectionState === "connected" ? disconnectThermometer : connectThermometer}
-        >
-          {connectionState === "connected" ? "🔵" : connectionState === "disconnected" ? "⚪" : "🟡"}
-        </button>
+        <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>
 
-      {connectionState === "connected" && (claimed || wouldAutoClaim) && latestSample && <CurrentTemperatureLine sample={latestSample} />}
+      {lineProbe?.connected && <CurrentTemperatureLine sample={lineProbe.sample} probeName={lineProbe.name} />}
 
       {instances.length > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: 8 }}>
@@ -271,6 +264,9 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
           </div>
         )}
       </div>
+      {choosingProbe && instance && (
+        <ProbeChooser engine={engine} instanceId={instance.id} onClose={() => setChoosingProbe(false)} onOpenProbes={onOpenProbes} />
+      )}
     </div>
   );
 }

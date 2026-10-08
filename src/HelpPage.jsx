@@ -34,14 +34,19 @@ export default function HelpPage({ onClose }) {
           </p>
         </Section>
 
-        <Section title="The thermometer">
+        <Section title="Temperature probes">
           <p>
-            The thermometer can only be in one place, so it can only be allocated to one recipe
-            step at a time, even if several are in progress at once. You can indicate which
-            recipe step is using the thermometer by tapping the 🌡️ icon on that step's page.
-            Starting your first recipe step allocates it there automatically. Tapping the icon
-            again frees the thermometer; tapping it on a different recipe step moves it there
-            instead, on the assumption you've physically moved the probe.
+            Tap the round icon at the top right to open <b>Probes</b>. Use <b>Add probe</b> to pick a
+            thermometer (our FTHERM, or a BBQ probe) — you only need to do that once for each. You can
+            connect several probes at the same time, rename them, and forget the ones you no longer use.
+          </p>
+          <p>
+            Each probe can only be in one place, so it is used by one recipe step at a time, even if
+            several are in progress at once. When you start a recipe step and exactly one connected probe
+            is free, it is used automatically. Otherwise tap the 🌡️ icon on that step's page and choose
+            which probe it should use. Choosing a probe that another recipe step is using moves it to
+            this step, on the assumption you've physically moved the probe. A recipe step with no probe
+            still gets its time alarms.
           </p>
         </Section>
 
@@ -54,9 +59,9 @@ export default function HelpPage({ onClose }) {
             only themed. Each alarm can use its own sound, set up in <b>Settings</b>.
           </p>
           <p>
-            The physical button on the thermometer silences whichever alarm fired earliest,
-            across every recipe and recipe step currently running — the same as the earliest
-            "Silence" button in the app. Silencing from a notification or from a recipe step's
+            The physical button on an FTHERM silences whichever alarm fired earliest,
+            across every recipe and recipe step currently running, whichever probe it is — the same as
+            the earliest "Silence" button in the app. Silencing from a notification or from a recipe step's
             page only silences that one alarm.
           </p>
         </Section>

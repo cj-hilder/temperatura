@@ -1,5 +1,5 @@
 // The controller. Follows Ride the Wind's createAppController({ backend, now,
-// ... }) shape: injected backend/clock/thermometer, builds a Store
+// ... }) shape: injected backend/clock, builds a Store
 // internally, returns a flat method-per-operation object plus the raw store
 // handle. No pub/sub — callers get results back from calls, same as RTW.
 import { IndexedDBBackend, MemoryBackend, Store, DEFAULT_THEME_ID } from "./storage.js";
@@ -8,12 +8,18 @@ import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag as setInstanceTag, elapsedRunningMs, elapsedTotalMs,
   advanceInBand, isMeasured, deriveProvenance, extendDuration,
-  acquireClaimOnStart, releaseClaimOnComplete, toggleClaim as toggleClaimHolder,
   noInstancesInProgress,
 } from "./instances.js";
+import {
+  autoAssignOnStart, assign, unassign, releaseOnComplete, forgetProbe, pruneAssignments, migrateClaim,
+} from "./assignment.js";
 import { evaluateAlarms, silenceEarliest, silenceById, dismissById } from "./alarms.js";
 
-const CLAIM_SETTING_KEY = "claimHolderId";
+// Only read once, to migrate an old install's single claim onto a probe
+// assignment (see getProbeAssignments); never written any more.
+const LEGACY_CLAIM_SETTING_KEY = "claimHolderId";
+const PROBE_ASSIGNMENTS_KEY = "probeAssignments";
+const KNOWN_PROBES_KEY = "knownProbes";
 const DATA_LOSS_THEME_SETTING_KEY = "dataLossAlarmTheme";
 // One multiplier per recipe, not one global value — scaling today's loaf
 // must never also scale an unrelated soup recipe that happens to be open at
@@ -37,7 +43,6 @@ const AUTO_CLEAR_TALLIES_SETTING_KEY = "autoClearTallies";
  * @param {object} [deps.backend] - storage backend; defaults to IndexedDB in
  *   the browser, MemoryBackend otherwise.
  * @param {() => number} [deps.now] - injectable clock; defaults to Date.now.
- * @param {object} [deps.thermometer] - a WebBluetoothBackend/FakeThermometer.
  * @param {() => string} [deps.uuid] - id generator, forwarded to Store.
  */
 export function createAppController(deps = {}) {
@@ -45,7 +50,6 @@ export function createAppController(deps = {}) {
     deps.backend || (typeof indexedDB !== "undefined" ? new IndexedDBBackend() : new MemoryBackend());
   const store = new Store({ backend, uuid: deps.uuid });
   const now = deps.now || (() => Date.now());
-  const thermometer = deps.thermometer || null;
 
   // ---- Recipes / open set ----
 
@@ -53,26 +57,63 @@ export function createAppController(deps = {}) {
   const getRecipe = (id) => store.getRecipe(id);
   const listRecipes = () => store.listRecipes();
   const updateRecipe = (id, patch) => store.updateRecipe(id, patch);
-  const deleteRecipe = (id) => store.deleteRecipe(id);
+  const deleteRecipe = async (id) => {
+    const instances = await store.listInstancesForRecipe(id);
+    await store.deleteRecipe(id);
+    await releaseInstances(instances.map((i) => i.id));
+  };
   const openRecipe = (id) => store.openRecipe(id);
   const listOpenRecipeIds = () => store.listOpenRecipeIds();
   // Tallies don't survive a close/reopen — a closed-then-reopened recipe is
   // meant to feel like starting fresh, not like resuming a session.
   const closeRecipe = async (id) => {
+    const instances = await store.listInstancesForRecipe(id);
     await store.closeRecipe(id, now());
     await clearCompletionTicks(id);
+    // Closing completes its instances wholesale, bypassing the per-instance
+    // Complete path, so their probes have to be freed here.
+    await releaseInstances(instances.map((i) => i.id));
   };
 
-  // ---- Claim ----
+  // ---- Probes: which are known, and which instance uses which ----
 
-  const getClaimHolderId = () => store.getSetting(CLAIM_SETTING_KEY, null);
+  const getKnownProbes = () => store.getSetting(KNOWN_PROBES_KEY, []);
+  const saveKnownProbes = (list) => store.setSetting(KNOWN_PROBES_KEY, list);
 
-  async function toggleClaim(instanceId) {
-    const current = await getClaimHolderId();
-    const next = toggleClaimHolder(current, instanceId);
-    await store.setSetting(CLAIM_SETTING_KEY, next);
+  // `{ [instanceId]: probeId }`. null in storage means "never migrated": an
+  // install from before multiple probes has a single claimHolderId instead,
+  // which maps onto the one probe it could possibly have meant.
+  async function getProbeAssignments() {
+    const stored = await store.getSetting(PROBE_ASSIGNMENTS_KEY, null);
+    if (stored !== null) return stored;
+    const legacy = await store.getSetting(LEGACY_CLAIM_SETTING_KEY, null);
+    const migrated = migrateClaim(legacy, (await getKnownProbes()).map((p) => p.id));
+    await store.setSetting(PROBE_ASSIGNMENTS_KEY, migrated);
+    await store.setSetting(LEGACY_CLAIM_SETTING_KEY, null);
+    return migrated;
+  }
+  const saveProbeAssignments = (a) => store.setSetting(PROBE_ASSIGNMENTS_KEY, a);
+
+  async function updateAssignments(fn) {
+    const current = await getProbeAssignments();
+    const next = fn(current);
+    if (next !== current) await saveProbeAssignments(next);
     return next;
   }
+
+  const assignProbe = (instanceId, probeId) => updateAssignments((a) => assign(a, instanceId, probeId));
+  const unassignProbe = (instanceId) => updateAssignments((a) => unassign(a, instanceId));
+  // Forgetting also removes it from the known list — the engine's manager
+  // owns the live connection, this owns what survives a restart.
+  async function forgetKnownProbe(probeId) {
+    await updateAssignments((a) => forgetProbe(a, probeId));
+    await saveKnownProbes((await getKnownProbes()).filter((p) => p.id !== probeId));
+  }
+  const releaseInstances = (instanceIds) =>
+    updateAssignments((a) => instanceIds.reduce((acc, id) => releaseOnComplete(acc, id), a));
+  // Drops assignments whose instance is gone or completed, whichever way that
+  // happened. Cheap enough to run every refresh: it only writes when it prunes.
+  const pruneProbeAssignments = (activeInstanceIds) => updateAssignments((a) => pruneAssignments(a, activeInstanceIds));
 
   // ---- Alarm themes ----
 
@@ -102,7 +143,9 @@ export function createAppController(deps = {}) {
 
   // ---- Instance lifecycle ----
 
-  async function doStartInstance({ id, recipeId, stepId, stepAlarmDefs, isFirstStep = false }) {
+  // `freeProbeIds`: the connected probes no instance is using — the caller
+  // knows what is connected, this controller doesn't (see autoAssignOnStart).
+  async function doStartInstance({ id, recipeId, stepId, stepAlarmDefs, isFirstStep = false, freeProbeIds = [] }) {
     // "Starting step 1 clears the tallies, but only when nothing else in the
     // recipe is mid-flight" — checked against instances as they stand right
     // now, before this one is created, so this new instance can never count
@@ -115,8 +158,7 @@ export function createAppController(deps = {}) {
     }
     const instance = startInstance({ id, recipeId, stepId, stepAlarmDefs }, now());
     await store.createInstance(instance);
-    const current = await getClaimHolderId();
-    await store.setSetting(CLAIM_SETTING_KEY, acquireClaimOnStart(current, instance.id));
+    await updateAssignments((a) => autoAssignOnStart(a, instance.id, freeProbeIds));
     return instance;
   }
 
@@ -145,19 +187,17 @@ export function createAppController(deps = {}) {
     const instance = await store.getInstance(instanceId);
     const updated = completeInstance(instance, now());
     await store.updateInstance(updated);
-    const current = await getClaimHolderId();
-    await store.setSetting(CLAIM_SETTING_KEY, releaseClaimOnComplete(current, instanceId));
+    await releaseInstances([instanceId]);
     await incrementCompletionTick(instance.recipeId, instance.stepId);
     return updated;
   }
 
-  async function doDuplicateInstance(instanceId, newId, stepAlarmDefs) {
+  async function doDuplicateInstance(instanceId, newId, stepAlarmDefs, freeProbeIds = []) {
     const instance = await store.getInstance(instanceId);
     const dup = duplicateInstance(instance, newId, stepAlarmDefs, now());
     await store.createInstance(dup);
-    // "A new instance never takes the claim" — same rule as any other Start.
-    const current = await getClaimHolderId();
-    await store.setSetting(CLAIM_SETTING_KEY, acquireClaimOnStart(current, dup.id));
+    // "A new instance never takes a probe" — same rule as any other Start.
+    await updateAssignments((a) => autoAssignOnStart(a, dup.id, freeProbeIds));
     return dup;
   }
 
@@ -220,10 +260,11 @@ export function createAppController(deps = {}) {
    * restart, on the very first evaluation: recovery is not a special case,
    * it's just this same call with a larger gap since lastSampleAt.
    */
-  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid, dataLossSilenceAfterMs }) {
+  // `claimed` = this instance has a probe assigned. The caller (engine.js)
+  // resolves which probe and passes in ITS reading and freshness, so this
+  // controller never needs to know probes exist.
+  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid, dataLossSilenceAfterMs, claimed = false }) {
     const instance = await store.getInstance(instanceId);
-    const claimHolderId = await getClaimHolderId();
-    const claimed = claimHolderId === instanceId;
     const measured = isMeasured({ claimed, msSinceLastPacket, readingValid });
     const inBand = measured ? isInBand(tempC, tempBand) : instance.lastKnownInBand;
 
@@ -285,17 +326,12 @@ export function createAppController(deps = {}) {
     return dismissedId;
   }
 
-  // ---- Thermometer ----
-
-  const connectThermometer = (handlers) => thermometer?.connect(handlers);
-  const disconnectThermometer = () => thermometer?.disconnect();
-  const getLastPacketAt = () => thermometer?.getLastPacketAt() ?? null;
-
   return {
     store,
     createRecipe, getRecipe, listRecipes, updateRecipe, deleteRecipe,
     openRecipe, listOpenRecipeIds, closeRecipe,
-    getClaimHolderId, toggleClaim,
+    getKnownProbes, saveKnownProbes, getProbeAssignments, assignProbe, unassignProbe,
+    forgetKnownProbe, releaseInstances, pruneProbeAssignments,
     ensureDefaultTheme, getDataLossAlarmTheme, setDataLossAlarmTheme,
     getIngredientsMultiplier, setIngredientsMultiplier,
     getCompletionTicks, clearCompletionTicks,
@@ -315,9 +351,6 @@ export function createAppController(deps = {}) {
     silence,
     silenceAlarm,
     dismissAlarm,
-    connectThermometer,
-    disconnectThermometer,
-    getLastPacketAt,
     validateRecipe,
   };
 }

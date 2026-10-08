@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import RecipeEditor from "./RecipeEditor.jsx";
-import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
+import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { formatDuration } from "./lib/format.js";
 import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu }) {
-  const { app, refresh, openRecipes, latestSample, connectionState, connectThermometer, disconnectThermometer, wrapUpRecipe } = engine;
+export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu, onOpenProbes }) {
+  const { app, refresh, openRecipes, wrapUpRecipe } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
   const [wrapUpConfirm, setWrapUpConfirm] = useState(false);
   const closeEditor = async () => {
@@ -105,16 +105,10 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
         <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
         <div style={t.spacer} />
-        <button
-          style={t.iconButton}
-          title="Connect to thermometer"
-          onClick={connectionState === "connected" ? disconnectThermometer : connectThermometer}
-        >
-          {connectionState === "connected" ? "🔵" : connectionState === "disconnected" ? "⚪" : "🟡"}
-        </button>
+        <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>
 
-      {connectionState === "connected" && latestSample && <CurrentTemperatureLine sample={latestSample} />}
+      <ProbeTemperatureLines engine={engine} />
 
       <div style={{ padding: "0 16px" }}>
         <h1 style={{ marginBottom: 4 }}>{recipe.name}</h1>

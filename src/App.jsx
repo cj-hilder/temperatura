@@ -12,6 +12,7 @@ import HelpPage from "./HelpPage.jsx";
 import AboutPage from "./AboutPage.jsx";
 import ExtendDialog from "./ExtendDialog.jsx";
 import AlarmOverlay from "./AlarmOverlay.jsx";
+import { ProbesPanel } from "./ProbeUi.jsx";
 import * as t from "./theme.js";
 
 export default function App() {
@@ -71,6 +72,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [probesOpen, setProbesOpen] = useState(false);
   useBackDismiss(menuOpen, () => setMenuOpen(false));
   useBackDismiss(settingsOpen, () => { setSettingsOpen(false); setMenuOpen(true); });
   useBackDismiss(helpOpen, () => { setHelpOpen(false); setMenuOpen(true); });
@@ -146,14 +148,15 @@ export default function App() {
   }
 
   const onOpenMenu = () => setMenuOpen(true);
+  const onOpenProbes = () => setProbesOpen(true);
   const currentRecipeId = screen.view === "recipe" || screen.view === "step" ? screen.recipeId : null;
   const activeScreen =
     screen.view === "recipe" ? (
-      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} onOpenMenu={onOpenMenu} />
+      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : screen.view === "step" ? (
-      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} onOpenMenu={onOpenMenu} />
+      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : (
-      <HomePage engine={engine} navigate={setScreen} onOpenMenu={onOpenMenu} />
+      <HomePage engine={engine} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     );
 
   return (
@@ -171,6 +174,7 @@ export default function App() {
           onOpenAbout={() => { setMenuOpen(false); setAboutOpen(true); }}
         />
       )}
+      {probesOpen && <ProbesPanel engine={engine} onClose={() => setProbesOpen(false)} />}
       {settingsOpen && <SettingsPage engine={engine} onClose={() => setSettingsOpen(false)} />}
       {helpOpen && <HelpPage onClose={() => setHelpOpen(false)} />}
       {aboutOpen && <AboutPage onClose={() => setAboutOpen(false)} />}

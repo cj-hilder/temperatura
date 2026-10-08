@@ -62,15 +62,19 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
 - **`instances.js`** — the instance state machine. Start / Pause / Resume / Restart / Complete /
   Duplicate, tag names, and the in-band accumulator. Every quantity derived from stored epoch
   timestamps (`startedAt`, `pausedAt`, `accumulatedInBandMs`, `lastSampleAt`), never a tick
-  counter, so recovery after the app is killed is just arithmetic. Owns the claim: which
-  instance holds it, auto-acquisition at Start, release on Complete, the toggle, transfer.
+  counter, so recovery after the app is killed is just arithmetic. (Which probe an instance
+  uses lives in `assignment.js`, not here.)
+- **`assignment.js`** — probe assignment, pure. `{ [instanceId]: probeId }`, one-to-one:
+  auto-assignment at Start (only when exactly one connected probe is free), release on
+  Complete, deliberate assignment with transfer, forgetting a probe, and the one-off migration
+  from the old single `claimHolderId`.
 - **`alarms.js`** — the evaluator. Given instance state plus a sample, returns which alarms
   fire, which re-arm, and which are silenced. Owns the 2 °C deadband and its re-arm rule, the
   one-shot/repeating logic, and the earliest-first silence queue. **Highest-value test target
   in the project.**
 - **`provenance.js`** *(or fold into `instances.js`)* — measured vs assumed, and the four
-  progress-bar states. This is derived per tick from three inputs: does this instance hold the
-  claim, how long since the last packet, is the reading valid. Only the latched estimate flag is
+  progress-bar states. This is derived per tick from three inputs: does this instance use a
+  probe, is that probe's data fresh, is the reading valid. Only the latched estimate flag is
   persisted, and it must survive recovery.
 - **`format.js`** — durations, temperatures, elapsed/remaining strings. Port RTW's shape.
 
@@ -88,12 +92,23 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   | `sounds` | decoded MP3 as ArrayBuffer, keyed by theme |
   | `settings` | key–value |
 
-- **`thermometer.js`** — `WebBluetoothBackend` + `FakeThermometer`. Parses the 8-byte
-  MEASUREMENT packet: little-endian, `seq` uint16, `temp` int16 in 0.01 °C with `0x8000`
-  meaning no reading, `battery` uint8, `pressCount` uint8, `flags` bit0 probe present /
-  bit1 button held. Owns press-count baselining (seed on every connect and reconnect, diff only
-  within an unbroken stream) and the 5 s data-loss watchdog. The fake is what makes
-  `testalarms.mjs` possible.
+- **`probes/`** — replaces the old single-device `thermometer.js`. One driver per kind of probe
+  behind a common descriptor `{ kind, label, filters, optionalServices, serviceUuid, charUuid,
+  parse, hasButton, freshness }`, each normalising to one sample shape `{ tempC, probePresent,
+  battery, pressCount, seq }` (`null` where a probe cannot report it).
+  - `ftherm.js` — the 8-byte MEASUREMENT packet: little-endian, `seq` uint16, `temp` int16 in
+    0.01 °C with `0x8000` meaning no reading, `battery` uint8, `pressCount` uint8, `flags` bit0
+    probe present / bit1 button held. Owns press-count baselining (seed on every connect and
+    reconnect, diff only within an unbroken stream). Freshness: heartbeat, 5 s.
+  - `bbq.js` — raw bytes: first byte is battery % (an integer 0-100, not a character), the rest
+    is the temperature in °C as an ASCII decimal. Freshness: link-based (notify-on-change, so
+    silence is not loss).
+  - `spikeFilter.js` — the BBQ's dip filter (pure, time passed in): holds a single low reading,
+    averages the rest, accepts a held reading after 5 s since a genuine drop gets no follow-up.
+  - `index.js` — the registry, and the union of picker filters / optional services.
+  - `manager.js` — one connection per probe (three-tier connect, bounded reconnect, per-probe
+    press baseline), `bluetooth`/`now`/`delay` injected so Node tests can drive it with a fake
+    GATT. Matches permitted devices to known probes by `device.id`.
 - **`alarmPlayer.js`** — `decodeAudioData` on the keep-alive `AudioContext`, gain node with
   `linearRampToValueAtTime` on the first pass, buffer looping until silenced, fallback to the
   synthesised default tone on any decode failure.
@@ -160,16 +175,20 @@ Write in this order:
 1. **`testalarms.mjs` first, before any UI.** Drive `alarms.js` with a synthetic temperature
    trace and a fake clock. Must cover: jitter across a threshold (proves the deadband), the
    re-arm at `T − 2` and its cooling mirror, a heating alarm whose step starts already above
-   threshold (never fires), a data-loss gap, a claim handover mid-step, repeating alarms across
+   threshold (never fires), a data-loss gap, a probe handover mid-step, repeating alarms across
    a silence, and three simultaneous alarms silenced earliest-first by three presses.
 2. `testinstances.mjs` — the state machine, pause/resume/restart arithmetic, in-band
    accumulation under every provenance state, Restart zeroing the accumulator and re-arming the
    duration-reached alarm, the latched estimate flag surviving a round trip through storage.
-3. `testclaim.mjs` — the whole claim lifecycle table from the spec, including the unclaimed
-   state after the holder completes, and the toggle.
+3. `testassignment.mjs` — the whole probe-assignment lifecycle from the spec: auto-assign only
+   with exactly one free connected probe, one-to-one, transfer on deliberate choice, the
+   unassigned state after the user completes, forgetting, and the `claimHolderId` migration.
+   (Supersedes the old `testclaim.mjs`.)
 4. `teststorage.mjs` — recipes, instances, the open set, import/export, backup/restore, cascade
    behaviour when a recipe with running instances is closed.
-5. `testpress.mjs` — press-count baselining. Seeding on first connect, seeding again after a
+5. `testpress.mjs` — FTHERM parsing and press-count baselining; `testbbq.mjs` — BBQ parsing;
+   `testprobes.mjs` — the manager against a fake GATT (two permitted devices matched by id,
+   per-probe reconnect, forget). Press-count baselining: Seeding on first connect, seeding again after a
    gap, diffs only within a stream, wrap and cold-restart handled as a single press, presses
    swallowed when nothing is sounding.
 6. `testrecovery.mjs` — kill and restore mid-instance. Model it on RTW's
@@ -189,7 +208,7 @@ Write in this order:
    done, so prove it before building on top of it.
 3. `storage.js` + `recipe.js` + tests. No UI.
 4. `instances.js` + `alarms.js` + provenance + tests. Still no UI.
-5. `thermometer.js` against the real Feather. Verify packet parsing and press counting with a
+5. `probes/` against the real Feather and a real BBQ probe. Verify packet parsing and press counting with a
    throwaway readout screen before wiring it to alarms.
 6. `alarmPlayer.js` + `notify.js`, replacing the spike's stubs.
 7. UI: home → recipe → step, then settings. Last, because by this point everything it calls is
@@ -227,10 +246,10 @@ sounding.
 
 Small things settled by writing them down rather than by explicit instruction:
 
-1. **Claim transfer on an explicit tap.** Tapping the thermometer icon on an instance that does
-   not hold the claim *transfers* the claim, on the reasoning that a deliberate tap means the
-   user has physically moved the probe, and that "a new instance never takes the claim" governs
-   automatic acquisition at Start only. The stricter alternative is to refuse and require a
+1. **Probe transfer on an explicit choice.** Choosing a probe on an instance's step page that
+   another instance is using *transfers* it, on the reasoning that a deliberate choice means the
+   user has physically moved the probe, and that "a new instance never takes a probe" governs
+   automatic assignment at Start only. The stricter alternative is to refuse and require a
    release on the holder's page first.
 2. **Notification silencing is per-alarm.** Each sounding alarm gets its own notification and
    tag, so each can be silenced independently — unlike the thermometer button, which is always

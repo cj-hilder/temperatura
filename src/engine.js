@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createAppController } from "./lib/app.js";
 import { IndexedDBBackend, DEFAULT_THEME_ID } from "./lib/storage.js";
 import { useKeepAlive } from "./lib/useKeepAlive.js";
-import { createWebBluetoothBackend, resetPressBaseline, applyPressBaseline } from "./lib/thermometer.js";
+import { createProbeManager } from "./lib/probes/manager.js";
+import { freeProbeIds } from "./lib/assignment.js";
 import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
@@ -54,20 +55,40 @@ export function useAppEngine() {
   }
   const app = appRef.current;
 
-  const thermometerRef = useRef(null);
-  const pressStateRef = useRef(resetPressBaseline());
+
   const routerRef = useRef(null);
   const soundingTagsRef = useRef(new Set()); // composite tags with an active alarmPlayer voice
   const missedNotifiedRef = useRef(new Set()); // composite tags already sent a one-time "now missed" notification
   const recipesRef = useRef({}); // recipeId -> recipe, for the tick loop's step lookups
-  const latestSampleRef = useRef(null);
-  const lastPacketAtRef = useRef(null);
+  // Updated every render so the (created-once) probe manager's press handler
+  // always calls the current resolveEarliestGlobal rather than a stale closure.
+  const pressHandlerRef = useRef(() => {});
+  const managerRef = useRef(null);
 
   const [keepAliveStarted, setKeepAliveStarted] = useState(false);
-  const [connectionState, setConnectionState] = useState("disconnected");
-  const [latestSample, setLatestSample] = useState(null);
-  const [lastPacketAt, setLastPacketAt] = useState(null);
-  const [claimHolderId, setClaimHolderId] = useState(null);
+  // Snapshot of every known probe (manager.snapshot()), and which instance
+  // uses which — see lib/assignment.js.
+  const [probes, setProbes] = useState([]);
+  const [assignments, setAssignments] = useState({});
+
+  if (!managerRef.current) {
+    managerRef.current = createProbeManager({
+      // A function, not navigator.bluetooth itself: looked up at the moment
+      // of use, never captured once at construction.
+      getBluetooth: () => navigator.bluetooth,
+      handlers: {
+        onChange: () => setProbes(managerRef.current.snapshot()),
+        // Global by spec: any FTHERM's press silences the earliest
+        // outstanding alarm, whichever probe sent it.
+        onPresses: (probeId, count) => pressHandlerRef.current(count),
+        onKnownChanged: (list) => app.saveKnownProbes(list),
+      },
+    });
+  }
+  const manager = managerRef.current;
+  useEffect(() => {
+    app.getKnownProbes().then((list) => manager.setKnown(list));
+  }, [app, manager]);
   const [openRecipes, setOpenRecipes] = useState([]); // [{recipe, instances: [instance, ...]}]
   // Which instance's "Extend duration" dialog is open, if any — driven from
   // two places (the step page's own Extend button, and a notification's
@@ -96,7 +117,10 @@ export function useAppEngine() {
         completionTicks: ticksByRecipeId[recipe.id],
       }))
     );
-    setClaimHolderId(await app.getClaimHolderId());
+    // Pruned against the instances that still run, since closing/deleting a
+    // recipe ends instances without going through Complete one at a time.
+    const activeIds = allInstances.filter((i) => i.status !== "completed").map((i) => i.id);
+    setAssignments(await app.pruneProbeAssignments(activeIds));
   }, [app]);
 
   useEffect(() => {
@@ -326,42 +350,59 @@ export function useAppEngine() {
     else await silenceAlarm(target.instanceId, target.alarmId);
   }, [dismissAlarm, silenceAlarm, app]);
 
-  // ---- thermometer connect/disconnect ----
+  // ---- probes ----
 
-  const connectThermometer = useCallback(async () => {
-    if (!thermometerRef.current) thermometerRef.current = createWebBluetoothBackend();
-    setConnectionState("connecting");
-    pressStateRef.current = resetPressBaseline();
+  pressHandlerRef.current = (count) => {
+    for (let i = 0; i < count; i++) resolveEarliestGlobal();
+  };
+
+  // Each of these can reject — the user cancelling the device picker is the
+  // common case, and is not an error worth surfacing — so the engine never
+  // lets a rejection escape into the UI.
+  const quietly = (fn) => async (...args) => {
     try {
-      await thermometerRef.current.connect({
-        onMeasurement: (sample) => {
-          const { state, presses } = applyPressBaseline(pressStateRef.current, sample.pressCount);
-          pressStateRef.current = state;
-          latestSampleRef.current = sample;
-          const at = Date.now();
-          lastPacketAtRef.current = at;
-          setLatestSample(sample);
-          setLastPacketAt(at);
-          for (let i = 0; i < presses; i++) resolveEarliestGlobal();
-        },
-        onDisconnect: () => setConnectionState("disconnected"),
-        onReconnecting: (attempt, max) => setConnectionState(`reconnecting (${attempt}/${max})`),
-        onReconnected: () => {
-          pressStateRef.current = resetPressBaseline();
-          setConnectionState("connected");
-        },
-        onReconnectGaveUp: () => setConnectionState("gave up"),
-      });
-      setConnectionState("connected");
+      return await fn(...args);
     } catch {
-      setConnectionState("disconnected");
+      return null;
     }
-  }, [resolveEarliestGlobal]);
+  };
+  const addProbe = quietly(() => manager.addProbe());
+  const connectProbe = quietly((probeId) => manager.connect(probeId));
+  const disconnectProbe = (probeId) => manager.disconnect(probeId);
+  const renameProbe = (probeId, name) => manager.rename(probeId, name);
+  const forgetProbeById = async (probeId) => {
+    manager.forget(probeId);
+    await app.forgetKnownProbe(probeId);
+    await refresh();
+  };
 
-  const disconnectThermometer = useCallback(() => {
-    thermometerRef.current?.disconnect();
-    setConnectionState("disconnected");
-  }, []);
+  // Choosing a probe for an instance (probeId null = release). Transfers it
+  // from whoever used it — see assignment.js.
+  const assignProbeToInstance = async (instanceId, probeId) => {
+    if (probeId == null) await app.unassignProbe(instanceId);
+    else await app.assignProbe(instanceId, probeId);
+    await refresh();
+  };
+
+  // The connected probes no instance is using: what Start auto-assigns from
+  // (only when there is exactly one), and what the pre-Start temperature
+  // line previews.
+  const freeConnectedProbeIds = () =>
+    freeProbeIds(probes.filter((p) => p.connected).map((p) => p.id), assignments);
+
+  // Everything one instance needs to know about the probe it uses.
+  const probeFor = (instanceId, now = Date.now()) => {
+    const probeId = assignments[instanceId];
+    const probe = probeId ? probes.find((p) => p.id === probeId) : null;
+    if (!probe) return null;
+    return { probe, sample: probe.sample, msSinceLastPacket: manager.msSinceFresh(probeId, now) };
+  };
+
+  const connectionSummary = probes.some((p) => p.connected)
+    ? "connected"
+    : probes.some((p) => p.state === "connecting" || p.state.startsWith("reconnecting"))
+      ? "connecting"
+      : "disconnected";
 
   // ---- SW ALARM_SILENCED / ALARM_DISMISSED / ALARM_EXTEND_REQUESTED (notification tap) ----
   useEffect(() => {
@@ -405,11 +446,10 @@ export function useAppEngine() {
           return;
         }
 
-        const sample = latestSampleRef.current;
-        const packetAt = lastPacketAtRef.current;
-        const msSinceLastPacket = packetAt != null ? Date.now() - packetAt : null;
-        const readingValid = !!(sample && sample.probePresent && sample.tempC != null);
-        const tempC = sample?.tempC ?? null;
+        // Resolved from the CURRENT state each cycle, per instance below —
+        // the tick loop's effect only re-runs when app/refresh change.
+        const assignmentsNow = await app.getProbeAssignments();
+        const probesNow = managerRef.current.snapshot();
 
         // Read once per cycle, not once per alarm — every instance/alarm this
         // tick shares the same theme map and data-loss theme id, so this is
@@ -440,6 +480,11 @@ export function useAppEngine() {
               silenceAfterMs: resolvePlaybackParams(themesById.get(themeIdForAlarmId(def.id, rawStepAlarmDefs, themeIds))).silenceAfterMs,
             }));
             const hasTempInterest = !!(step.tempBand || step.tempAlarms.length > 0);
+            const probe = probesNow.find((p) => p.id === assignmentsNow[instance.id]) ?? null;
+            const sample = probe?.sample ?? null;
+            const msSinceLastPacket = probe ? managerRef.current.msSinceFresh(probe.id, Date.now()) : null;
+            const readingValid = !!(sample && sample.probePresent && sample.tempC != null);
+            const tempC = sample?.tempC ?? null;
             const result = await app.tick(instance.id, {
               stepAlarmDefs,
               hasTempInterest,
@@ -449,6 +494,7 @@ export function useAppEngine() {
               msSinceLastPacket,
               readingValid,
               dataLossSilenceAfterMs,
+              claimed: !!probe,
             });
 
             const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
@@ -515,6 +561,9 @@ export function useAppEngine() {
       } catch (err) {
         console.error("tick loop failed", err);
       } finally {
+        // A filtered probe's held reading can time out with no packet to
+        // announce it, so re-read the probes every cycle as well.
+        setProbes(managerRef.current.snapshot());
         refresh();
       }
     }, TICK_INTERVAL_MS);
@@ -528,12 +577,17 @@ export function useAppEngine() {
     refresh,
     keepAliveStarted,
     startKeepAlive,
-    connectionState,
-    connectThermometer,
-    disconnectThermometer,
-    latestSample,
-    lastPacketAt,
-    claimHolderId,
+    probes,
+    assignments,
+    probeFor,
+    freeConnectedProbeIds,
+    connectionSummary,
+    addProbe,
+    connectProbe,
+    disconnectProbe,
+    renameProbe,
+    forgetProbe: forgetProbeById,
+    assignProbeToInstance,
     openRecipes,
     silenceAlarm,
     dismissAlarm,

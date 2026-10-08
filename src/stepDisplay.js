@@ -73,11 +73,15 @@ export function alarmDetail(def, firedCount) {
  * Returns null if the step has no duration — spec: no progress bar at all
  * in that case.
  */
-export function computeStepProgress(instance, step, { claimHolderId, latestSample, lastPacketAt }, now) {
+export function computeStepProgress(instance, step, { probeFor }, now) {
   if (!step.duration) return null;
 
-  const claimed = instance.id === claimHolderId;
-  const msSinceLastPacket = lastPacketAt != null ? now - lastPacketAt : null;
+  // The probe this instance uses, if any (engine.probeFor) — its own sample
+  // and its own freshness, not one global reading shared by every step.
+  const bound = probeFor(instance.id, now);
+  const latestSample = bound?.sample ?? null;
+  const claimed = !!bound;
+  const msSinceLastPacket = bound?.msSinceLastPacket ?? null;
   const readingValid = !!(latestSample && latestSample.probePresent && latestSample.tempC != null);
   const measured = isMeasured({ claimed, msSinceLastPacket, readingValid });
 
