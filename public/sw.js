@@ -24,6 +24,7 @@
 // way Ride the Wind's does). When the bundle changes, the id changes, so old
 // shells are purged automatically on activate.
 importScripts("./build-id.js");
+importScripts("./sw-cache-policy.js");
 const VERSION = (self.__TEMPERATURA_BUILD_ID__ || "dev");
 const SHELL_CACHE = "temperatura-shell-" + VERSION;
 
@@ -80,10 +81,16 @@ self.addEventListener("fetch", (event) => {
 
 async function cacheFirst(request) {
   const cached = await caches.match(request);
-  if (cached) return cached;
+  if (cached) {
+    if (self.TemperaturaCachePolicy.isCacheableAsset(cached)) return cached;
+    // An HTML page stored under an asset's URL by an earlier version of this
+    // worker (see sw-cache-policy.js) — evict it from every cache, or it
+    // would keep blanking the page forever.
+    for (const key of await caches.keys()) await (await caches.open(key)).delete(request);
+  }
   try {
     const res = await fetch(request);
-    if (res.ok) {
+    if (self.TemperaturaCachePolicy.isCacheableAsset(res)) {
       const cache = await caches.open(SHELL_CACHE);
       cache.put(request, res.clone());
     }
@@ -95,10 +102,20 @@ async function cacheFirst(request) {
 
 // Network-first for the document: always fetch fresh, cache the latest copy,
 // fall back to whatever we last cached if the network is down.
+//
+// "no-cache", not "no-store": both always go to the server, but "no-store"
+// also never writes the browser's own HTTP cache, so the HTTP cache's copy of
+// the page froze at whatever it held before this worker took over — weeks
+// old. An old build's page was seen loading on a phone after returning from
+// the background (its bundle, now missing from the server, blanked the
+// screen), and that frozen copy is the likeliest place it came from: Chrome
+// has load paths that read the HTTP cache without this worker. "no-cache"
+// revalidates and refreshes that copy on every launch, so it can never be
+// older than the last launch.
 async function networkFirstDoc(request) {
   const cache = await caches.open(SHELL_CACHE);
   try {
-    const res = await fetch(request, { cache: "no-store" });
+    const res = await fetch(request, { cache: "no-cache" });
     if (res.ok) cache.put(BASE + "index.html", res.clone());
     return res;
   } catch {

@@ -16,6 +16,30 @@
       html, body, #root { height: 100dvh; margin: 0; background: #F7F4ED; overflow: hidden; }
       body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
     </style>
+    <script>
+      // Last line of defence against a blank screen. If this page is a stale
+      // copy, the bundle it names may no longer exist on the server, and
+      // Cloudflare answers a missing file with index.html — which the browser
+      // refuses to run as a module script, so nothing ever renders. Reloading
+      // fetches the page fresh (sw.js serves it network-first), naming the
+      // current bundle. Inline, not in the bundle, because the bundle is the
+      // thing that failed. Rate-limited via sessionStorage so a genuinely
+      // broken deploy can't loop; with no sessionStorage, it never reloads.
+      (function () {
+        var KEY = "temperatura-boot-reload-at";
+        window.addEventListener("error", function (e) {
+          var el = e.target;
+          if (!el || el.tagName !== "SCRIPT" || el.type !== "module") return;
+          try {
+            if (Date.now() - Number(sessionStorage.getItem(KEY) || 0) < 30000) return;
+            sessionStorage.setItem(KEY, String(Date.now()));
+          } catch (_) {
+            return;
+          }
+          location.reload();
+        }, true); // capture: a script's load error doesn't bubble to window
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

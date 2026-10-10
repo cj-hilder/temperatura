@@ -194,6 +194,8 @@ Write in this order:
 6. `testrecovery.mjs` — kill and restore mid-instance. Model it on RTW's
    `recording-recovery-spec.md` and `testrecovery.mjs`.
 7. `testformat.mjs` — cheap, catches a lot.
+8. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
+   (see §6), never cache a failure.
 
 ---
 
@@ -237,6 +239,19 @@ is picked up without a force-quit. In Temperatura that would reload the app in t
 ferment, or while an alarm is sounding. Keep the update detection, but defer the reload until no
 instance is running and no alarm is sounding — or at minimum, never reload while an alarm is
 sounding.
+
+**Never cache the SPA fallback as an asset.** `not_found_handling: "single-page-application"`
+makes Cloudflare answer a request for any missing file, including an earlier build's hashed
+bundle, with `index.html` and a 200. A stale copy of the page asking for its long-gone bundle
+got HTML back; the SW's cache-first route stored it under the bundle's URL, the browser
+refused to run it as a module script, and the app was a blank screen on every launch of that
+page. So: the SW only caches (and only serves from cache) responses that pass
+`public/sw-cache-policy.js` — a real success that is not `text/html` — and evicts any HTML it
+finds under an asset URL. The document is fetched with `cache: "no-cache"`, not `"no-store"`,
+so the browser's own HTTP-cache copy of the page is refreshed on every launch instead of
+freezing at whatever it held before the SW took over (the likeliest source of the stale page).
+And `index.html` carries an inline, rate-limited (once per 30 s per session) reload if its module
+script fails to load: the last line of defence when a stale page still gets through.
 
 `_headers` is not needed. Manawa Pace only has one to serve its README as markdown.
 
