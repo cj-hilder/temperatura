@@ -69,8 +69,8 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   Complete, deliberate assignment with transfer, forgetting a probe, and the one-off migration
   from the old single `claimHolderId`.
 - **`alarms.js`** — the evaluator. Given instance state plus a sample, returns which alarms
-  fire, which re-arm, and which are silenced. Owns the 2 °C deadband and its re-arm rule, the
-  one-shot/repeating logic, and the earliest-first silence queue. **Highest-value test target
+  fire, which re-arm, and which are silenced. Owns the 0.1 °C-rounded threshold sides, the every-time
+  re-arm hysteresis (5 readings or 5 s with no reading over the threshold, every reading checked), the one-shot/repeating logic, and the earliest-first silence queue. **Highest-value test target
   in the project.**
 - **`provenance.js`** *(or fold into `instances.js`)* — measured vs assumed, and the four
   progress-bar states. This is derived per tick from three inputs: does this instance use a
@@ -173,8 +173,10 @@ Same style as RTW: plain `.mjs` files at the repo root, run by the shell loop, a
 Write in this order:
 
 1. **`testalarms.mjs` first, before any UI.** Drive `alarms.js` with a synthetic temperature
-   trace and a fake clock. Must cover: jitter across a threshold (proves the deadband), the
-   re-arm at `T − 2` and its cooling mirror, a heating alarm whose step starts already above
+   trace and a fake clock. Must cover: jitter across a threshold (proves the hysteresis), the
+   re-arm after 5 readings or 5 s with no reading over the threshold (including an excursion
+   between two ticks) and its cooling mirror, one-shot ("once")
+   temperature alarms and their re-arm on Restart, firing judged on the rounded reading, a heating alarm whose step starts already above
    threshold (never fires), a data-loss gap, a probe handover mid-step, repeating alarms across
    a silence, and three simultaneous alarms silenced earliest-first by three presses.
 2. `testinstances.mjs` — the state machine, pause/resume/restart arithmetic, in-band

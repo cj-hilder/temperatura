@@ -25,7 +25,7 @@ export function createBlankStep(id) {
     duration: null, // { ms, kind: "fixed" | "inBand" }
     timeAlarms: [], // { id, name, atMs, repeat, intervalMs, theme }
     tempBand: null, // { lowC, highC }
-    tempAlarms: [], // { id, name, thresholdC, direction: "heating" | "cooling", theme }
+    tempAlarms: [], // { id, name, thresholdC, direction: "heating" | "cooling", oneShot, theme } — oneShot absent (older recipes) = every time
     durationReachedAlarm: null, // { enabled, theme } — only meaningful when duration is set
     // Implicit band-boundary alarms — always present whenever tempBand is
     // set, never individually disabled, only themeable. See
@@ -162,7 +162,8 @@ export function buildStepAlarmDefs(step, { durationExtensionMs = 0 } = {}) {
   // at the band's low edge and a heating alarm at its high edge — alerting
   // whenever the reading actually leaves the band, not just failing to
   // accumulate in-band time silently. Unlike durationReachedAlarm these have
-  // no enabled/disabled toggle: they exist whenever the band does.
+  // no enabled/disabled toggle: they exist whenever the band does. Always
+  // "every time" (never oneShot): leaving the band again is always news.
   if (step.tempBand) {
     defs.push({
       id: `${step.id}-band-min`,
@@ -170,6 +171,7 @@ export function buildStepAlarmDefs(step, { durationExtensionMs = 0 } = {}) {
       name: "Below band",
       thresholdC: step.tempBand.lowC,
       direction: "cooling",
+      oneShot: false,
       theme: step.bandMinAlarm?.theme ?? null,
     });
     defs.push({
@@ -178,6 +180,7 @@ export function buildStepAlarmDefs(step, { durationExtensionMs = 0 } = {}) {
       name: "Above band",
       thresholdC: step.tempBand.highC,
       direction: "heating",
+      oneShot: false,
       theme: step.bandMaxAlarm?.theme ?? null,
     });
   }

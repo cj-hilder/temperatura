@@ -491,6 +491,7 @@ export function useAppEngine() {
               tempBand: step.tempBand,
               duration: step.duration,
               tempC,
+              readings: probe?.readings ?? null,
               msSinceLastPacket,
               readingValid,
               dataLossSilenceAfterMs,

@@ -1,4 +1,4 @@
-import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs, formatHMS } from './src/lib/format.js';
+import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs, formatHMS, parseTemperatureText } from './src/lib/format.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -63,6 +63,22 @@ console.log('\nformatHMS:');
   ok('minutes and seconds, hours still shown as 00', formatHMS(5 * 60_000) === '00:05:00');
   ok('hours are zero-padded too, unlike formatDuration', formatHMS(2 * 3_600_000 + 5 * 60_000 + 3_000) === '02:05:03');
   ok('seconds only', formatHMS(45_000) === '00:00:45');
+}
+
+console.log('\nparseTemperatureText — the temperature entry box:');
+{
+  const p = parseTemperatureText;
+  ok('an emptied box is empty text and no value — never a committed 0', p('').text === '' && p('').value === null);
+  ok('typing 5 into an emptied box is "5", not "05"', p('5').text === '5' && p('5').value === 5);
+  ok('decimals', p('37.5').value === 37.5);
+  ok('negative', p('-18').value === -18 && p('-18').text === '-18');
+  ok('a lone minus is kept as typed but is not a value yet', p('-').text === '-' && p('-').value === null);
+  ok('a lone point is not a value yet', p('.').value === null);
+  ok('"5." is 5 while the decimal is still being typed', p('5.').text === '5.' && p('5.').value === 5);
+  ok('a comma counts as the decimal point', p('37,5').text === '37.5' && p('37,5').value === 37.5);
+  ok('a second point is dropped', p('3.7.5').text === '3.75');
+  ok('a minus anywhere but the front is dropped', p('3-7').text === '37');
+  ok('letters and spaces are dropped', p(' 4a2°').text === '42');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

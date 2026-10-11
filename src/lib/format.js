@@ -5,10 +5,31 @@
 
 export function formatTemperature(celsius) {
   if (celsius == null || Number.isNaN(celsius)) return "";
-  // One decimal place, not RTW's whole-degree choice — the alarm deadband is
-  // 2°C and band edges are worth showing more precisely than a weather app's
-  // rounding needs.
+  // One decimal place, not RTW's whole-degree choice — temperature alarms
+  // fire and re-arm on the reading rounded to 0.1 °C (alarms.js
+  // thresholdSide), so this is exactly the value they judge.
   return `${celsius.toFixed(1)}°C`;
+}
+
+/**
+ * What a temperature entry box keeps while the user types, and the number it
+ * means. `text` is the typing so far, cleaned to an optional leading minus,
+ * digits and one decimal point (a comma counts as the point, for keyboards
+ * that offer only that). `value` is null while the text isn't a number yet —
+ * "", "-", "." — so the box can show exactly what was typed without the
+ * caller committing a 0 (committing 0 for an emptied box is what used to put
+ * a stray leading zero in front of the next digit typed).
+ */
+export function parseTemperatureText(raw) {
+  let text = "";
+  let seenPoint = false;
+  for (const ch of String(raw).replace(/,/g, ".")) {
+    if (ch >= "0" && ch <= "9") text += ch;
+    else if (ch === "-" && text === "") text = "-";
+    else if (ch === "." && !seenPoint) { seenPoint = true; text += "."; }
+  }
+  const value = /\d/.test(text) ? Number(text) : null;
+  return { text, value: Number.isFinite(value) ? value : null };
 }
 
 // H:MM:SS once at least an hour has elapsed, otherwise M:SS — seconds

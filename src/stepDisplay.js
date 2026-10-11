@@ -40,7 +40,7 @@ export function describeStepAlarms(step) {
     });
   }
   for (const a of sortTempAlarms(step.tempAlarms)) {
-    lines.push({ id: a.id, text: `${a.name} — ${a.thresholdC}°C, ${a.direction}` });
+    lines.push({ id: a.id, text: `${a.name} — ${a.thresholdC}°C, ${a.direction}${a.oneShot ? " (once)" : ""}` });
   }
   if (step.tempBand) {
     lines.push({ id: `${step.id}-band-min`, text: `Below band — ${step.tempBand.lowC}°C, cooling` });

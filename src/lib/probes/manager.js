@@ -12,6 +12,11 @@ import { applyPressBaseline, resetPressBaseline } from "./ftherm.js";
 import { DRIVERS, driverForKind, pickerOptions } from "./index.js";
 
 const RECONNECT_ATTEMPTS = 3;
+// How many recent readings each probe keeps for the alarm re-arm rule
+// (alarms.js), which must see every reading although alarms are evaluated
+// only once per tick. An FTHERM sends ~1.3 per second, so this is many
+// ticks' worth of slack.
+const RECENT_READINGS = 32;
 const RECONNECT_INTERVAL_MS = 3000;
 const PAIRED_RETRY_ATTEMPTS = 3;
 const PAIRED_RETRY_INTERVAL_MS = 3000;
@@ -61,6 +66,11 @@ export function createProbeManager({
       device: null,
       state: "disconnected", // disconnected | connecting | connected | reconnecting (n/m) | gave up
       sample: null,
+      // The last RECENT_READINGS readings, oldest first, each numbered by a
+      // counter that only ever goes up, so an evaluator can tell which it has
+      // already seen.
+      readings: [],
+      readingCount: 0,
       lastPacketAt: null,
       disconnectedAt: null,
       pressState: resetPressBaseline(),
@@ -98,6 +108,11 @@ export function createProbeManager({
       sample = { ...sample, rawTempC: sample.tempC, tempC: rec.filter.push(sample.tempC, now()) };
     }
     rec.sample = sample;
+    if (sample.tempC != null) {
+      rec.readingCount++;
+      rec.readings.push({ n: rec.readingCount, tempC: sample.tempC, at: now() });
+      if (rec.readings.length > RECENT_READINGS) rec.readings.shift();
+    }
     rec.lastPacketAt = now();
     if (driver.hasButton && sample.pressCount != null) {
       const { state, presses } = applyPressBaseline(rec.pressState, sample.pressCount);
@@ -307,7 +322,7 @@ export function createProbeManager({
       return {
         id: rec.id, kind: rec.kind, label: driver.label, name: rec.name, state: rec.state,
         connected: rec.state === "connected",
-        sample: currentSample(rec), lastPacketAt: rec.lastPacketAt, disconnectedAt: rec.disconnectedAt,
+        sample: currentSample(rec), readings: [...rec.readings], lastPacketAt: rec.lastPacketAt, disconnectedAt: rec.disconnectedAt,
         hasButton: driver.hasButton,
       };
     });

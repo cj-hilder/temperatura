@@ -174,6 +174,17 @@ console.log('\nSamples, battery and presses per probe:');
   ok('a garbled notification becomes "no data", not a crash', byId(mgr, 'dev-bbq').sample.tempC === null);
   ft.emit([1, 2, 3]);
   ok('a truncated FTHERM packet is ignored, keeping the last sample', byId(mgr, 'dev-ft').sample.tempC === 20);
+  // The alarm re-arm rule walks every reading, so each probe keeps its recent
+  // ones, numbered; only real temperature readings count.
+  const ftReadings = byId(mgr, 'dev-ft').readings;
+  ok('recent readings are kept per probe, oldest first, numbered', ftReadings.length === 2
+    && ftReadings[0].n === 1 && ftReadings[0].tempC === 21.5 && ftReadings[1].n === 2 && ftReadings[1].tempC === 20);
+  // (21.35: the BBQ's filter averages 21.4 with the 21.3 before it — readings
+  // are the filtered values, the same ones everything else sees.)
+  ok('...and a "no data" notification is not a reading', byId(mgr, 'dev-bbq').readings.map((r) => r.tempC).join() === '21.3,21.35');
+  for (let i = 0; i < 40; i++) ft.emit(fthermPacket({ tempCenti: 2000 + i }));
+  const kept = byId(mgr, 'dev-ft').readings;
+  ok('only the most recent 32 are kept, numbering carrying on', kept.length === 32 && kept[31].n === 42 && kept[0].n === 11);
 }
 
 console.log('\nData freshness — heartbeat vs link:');

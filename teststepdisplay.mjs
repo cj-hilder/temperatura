@@ -1,5 +1,5 @@
 import { describeStepAlarms, alarmDetail } from './src/stepDisplay.js';
-import { createBlankStep } from './src/lib/recipe.js';
+import { createBlankStep, buildStepAlarmDefs } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -46,6 +46,26 @@ console.log('\ndescribeStepAlarms — canonical order: time asc, duration, heati
       'cool-high', 'cool-low',
       's1-band-min', 's1-band-max',
     ].join(','));
+}
+
+console.log('\ndescribeStepAlarms — a "once" temperature alarm says so; nothing else changes:');
+{
+  const step = {
+    ...createBlankStep('s1'),
+    tempBand: { lowC: 20, highC: 30 },
+    tempAlarms: [
+      { id: 'once', name: 'Pan hot', direction: 'heating', thresholdC: 70, oneShot: true, theme: null },
+      { id: 'every', name: 'Too hot', direction: 'heating', thresholdC: 80, oneShot: false, theme: null },
+      { id: 'legacy', name: 'Old one', direction: 'cooling', thresholdC: 10, theme: null },
+    ],
+  };
+  const text = Object.fromEntries(describeStepAlarms(step).map((l) => [l.id, l.text]));
+  ok('a once alarm gets "(once)" appended', text.once === 'Pan hot — 70°C, heating (once)');
+  ok('an every-time alarm reads as before', text.every === 'Too hot — 80°C, heating');
+  ok('an older alarm with no oneShot field reads as every time', text.legacy === 'Old one — 10°C, cooling');
+  ok('band alarms carry no "(once)"', !text['s1-band-min'].includes('(once)') && !text['s1-band-max'].includes('(once)'));
+  const bandDefs = buildStepAlarmDefs(step).filter((d) => d.id.includes('-band-'));
+  ok('band alarms are always every time (oneShot false)', bandDefs.length === 2 && bandDefs.every((d) => d.oneShot === false));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

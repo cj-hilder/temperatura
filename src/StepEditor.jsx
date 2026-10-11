@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import TimeInput from "./TimeInput.jsx";
+import TemperatureInput from "./TemperatureInput.jsx";
 import { sortTimeAlarms, sortTempAlarms } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
@@ -17,6 +18,25 @@ function ThemeSelect({ themes, value, onChange }) {
         <option key={th.id} value={th.id}>{th.name}</option>
       ))}
     </select>
+  );
+}
+
+// "once" / "every time" for one temperature alarm — two segments rather than
+// a checkbox, so both choices are named on screen. "Once" sets the alarm's
+// oneShot flag: it fires once per run of the step (Restart re-arms it).
+function OnceSwitch({ oneShot, onChange }) {
+  const segment = (selected) => ({
+    ...t.smallButton,
+    borderRadius: 0,
+    border: "none",
+    background: selected ? t.colors.gradientEnd : "transparent",
+    color: selected ? "#fff" : t.colors.text,
+  });
+  return (
+    <span style={{ display: "inline-flex", border: `1px solid ${t.colors.border}`, borderRadius: 100, overflow: "hidden" }}>
+      <button type="button" style={segment(oneShot)} onClick={() => onChange(true)}>once</button>
+      <button type="button" style={segment(!oneShot)} onClick={() => onChange(false)}>every time</button>
+    </span>
   );
 }
 
@@ -51,7 +71,7 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
   const removeTimeAlarm = (i) => setTimeAlarms(timeAlarms.filter((_, j) => j !== i));
 
   const addTempAlarm = () =>
-    setTempAlarms([...tempAlarms, { id: crypto.randomUUID(), name: "", thresholdC: 30, direction: "heating", theme: null }]);
+    setTempAlarms([...tempAlarms, { id: crypto.randomUUID(), name: "", thresholdC: 30, direction: "heating", oneShot: false, theme: null }]);
   const updateTempAlarm = (i, patch) => setTempAlarms(tempAlarms.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   const removeTempAlarm = (i) => setTempAlarms(tempAlarms.filter((_, j) => j !== i));
 
@@ -123,9 +143,9 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
         </label>
         {tempBandOn && (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input style={{ ...t.input, width: 80 }} type="number" value={lowC} onChange={(e) => setLowC(e.target.value)} />
+            <TemperatureInput valueC={lowC} onChangeC={setLowC} />
             <span>to</span>
-            <input style={{ ...t.input, width: 80 }} type="number" value={highC} onChange={(e) => setHighC(e.target.value)} />
+            <TemperatureInput valueC={highC} onChangeC={setHighC} />
             <span>°C</span>
           </div>
         )}
@@ -183,12 +203,15 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
           <div key={a.id} style={{ ...t.card, margin: "0 0 8px" }}>
             <input style={t.input} placeholder="Name" value={a.name} onChange={(e) => updateTempAlarm(i, { name: e.target.value })} />
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-              <input style={{ ...t.input, width: 80 }} type="number" value={a.thresholdC} onChange={(e) => updateTempAlarm(i, { thresholdC: Number(e.target.value) })} />
+              <TemperatureInput valueC={a.thresholdC} onChangeC={(thresholdC) => updateTempAlarm(i, { thresholdC })} />
               <span>°C</span>
               <select style={t.input} value={a.direction} onChange={(e) => updateTempAlarm(i, { direction: e.target.value })}>
                 <option value="heating">Heating</option>
                 <option value="cooling">Cooling</option>
               </select>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <OnceSwitch oneShot={!!a.oneShot} onChange={(oneShot) => updateTempAlarm(i, { oneShot })} />
             </div>
             <label style={{ ...t.label, marginTop: 6 }}>Alarm theme</label>
             <ThemeSelect themes={themes} value={a.theme} onChange={(theme) => updateTempAlarm(i, { theme })} />

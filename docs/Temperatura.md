@@ -160,7 +160,7 @@ Start, Pause/resume, Restart, Complete, Duplicate, Extend
 
 * Start: set the step to ‘in progress’ and allow the step’s alarms to trigger. If the duration is ‘fixed length’ start the timer running, if the duration is ‘in temperature band’ start counting time in temperature, if outside the temperature band show a ‘waiting for temperature’ indicator. Whether the instance is counting on live data or on assumption is shown throughout - see In-band accumulation. Once the step is started a tag name can be entered.  
 * Pause/resume: pause, then resume the timer. The step remains in progress while paused. Time alarms cannot trigger because the timer is not running, but temperature alarms can trigger because the step is in progress.  
-* Restart: reset the timer to zero and start it running again. The step remains in progress. Any time alarms that have already triggered can now trigger again.  
+* Restart: reset the timer to zero and start it running again. The step remains in progress. Any time alarms that have already triggered can now trigger again, and so can any one-shot ("once") temperature alarm.  
 * Complete:  set the step to ‘not in progress’, no more of the step’s alarms will trigger.  
 * Duplicate: Start another instance of this step  
 * Extend: add time to this instance’s duration without editing the recipe — see Extending a duration.
@@ -212,7 +212,12 @@ This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Sett
   * Name  
   * Temperature  
   * Heating or cooling  
+  * Once or every time (a two-way switch labelled "once" / "every time"; "once" makes the
+    alarm **one-shot**). Defaults to every time, and an alarm saved before this option existed
+    is every time. The band's two implicit alarms are always every time and have no switch.
   * Alarm theme
+
+On the step page's list, a one-shot temperature alarm's description ends with "(once)"; every other alarm reads as before.
 
 Wherever a step's alarms are listed as a group — the step page's own list, and the order alarms are edited in — they appear in one canonical order: time alarms ascending by trigger time, then the duration-reached alarm, then heating temperature alarms ascending by threshold, then cooling temperature alarms descending by threshold, then the temperature band's two implicit alarms. A newly-added alarm is appended at the bottom of its own list while you're still editing (so adding one doesn't jump around mid-edit) and reflows into its sorted position the moment you leave the editor.
 
@@ -254,12 +259,13 @@ It cannot be deleted. Its ramp, vibrate, and silence-after settings can be edite
 
 If a step starts already above a heating alarm's threshold, no crossing ever occurs, so it never fires. Same for cooling alarms starting below threshold.
 
-Temperature alarms need a deadband. At 12-bit the DS18B20 resolves 0.0625 °C and will jitter across a threshold repeatedly. The deadband is 2 deg C, and it applies as follows:
+Temperature alarms judge the reading rounded to the nearest 0.1 °C — the resolution the app displays — so an alarm always agrees with the number on screen. Against a threshold T a rounded reading is above T, below T, or exactly at T, and exactly at T counts as neither side.
 
-* A **heating** alarm at temperature T fires on an upward crossing of T, and re-arms only once the reading falls below T − 2. It cannot fire again until it has re-armed.
-* A **cooling** alarm at temperature T is the mirror: it fires on a downward crossing of T, and re-arms only once the reading rises above T + 2.
+* A **heating** alarm at T fires when the reading goes above T (e.g. 70.1 for T = 70) having not been above it. A **cooling** alarm is the mirror: it fires when the reading goes below T having not been below it.
+* A **one-shot** ("once") temperature alarm fires at most once per run of the step. Only Restart re-arms it (see Restart), and even then it needs a real crossing from wherever the reading is at that moment.
+* An **every time** temperature alarm re-arms after firing, with hysteresis, because a reading jitters across a threshold (the DS18B20 resolves 0.0625 °C). The count starts at a reading back on the other side of T — below T for heating, above T for cooling — by any amount. It then needs **5 readings in a row, or 5 seconds, whichever comes first, without any reading going over the threshold again** (above T for heating, below T for cooling; a reading exactly at T is not over it, so it doesn't cancel the count and does count towards it). Any reading over the threshold cancels the count, and it starts again from the next reading back across. Every reading is checked, including ones that arrive between the app's once-a-second alarm evaluations. A loss of live data also cancels the count, and readings from during the gap are ignored (time nobody observed doesn't count). Both limits exist because probes differ: an FTHERM reports about 1.3 times a second, so 5 readings re-arm it in about 4 s, while a BBQ only reports when its value changes, so for it the 5 seconds is what usually applies. It cannot fire again until it has re-armed.
 
-The deadband applies to alarms only. It does NOT apply to the temperature band used for in-band accumulation - band entry and exit are evaluated on the raw reading against the band's low and high values, with no hysteresis. Jitter at 0.0625 °C resolution costs milliseconds of accumulated time either way, which does not matter.
+This hysteresis applies to alarms only. It does NOT apply to the temperature band used for in-band accumulation - band entry and exit are evaluated on the raw reading against the band's low and high values, with no hysteresis. Jitter at 0.0625 °C resolution costs milliseconds of accumulated time either way, which does not matter.
 
 When an alarm triggers it causes a notification, plays the sound, and triggers the system vibration. Because this is an Android PWA it is necessary for the app to register itself as a media player, and to continually play a near silent audio file. This not only allows the alarm audio files to play, but it also means the BLE data keeps flowing when the app is backgrounded. If the BLE data stops flowing an entirely separate (configured in the app settings from the hamburger icon) alarm must sound to alert the user that the temperature data is not flowing.
 
@@ -278,9 +284,9 @@ An alarm left sounding for its theme's "Silence after" duration with nobody ackn
 A missed alarm is cleared one of two ways:
 
 * **It is dismissed.** A distinct action from silencing, since a missed alarm has nothing currently sounding to silence.
-* **It retriggers on its own.** A repeating time alarm's next interval, a temperature alarm's next crossing after re-arming by deadband, and the data-loss alarm's next loss episode after reconnecting, all fire and sound again even if the previous occurrence was left missed and never dismissed — and that retrigger implicitly clears the earlier missed status (there is only one slot of runtime state per alarm, no history of separate occurrences, so the fresh occurrence simply replaces the stale one). This is deliberate: the point of a repeating alarm is that a missed occurrence must never hold up the next one — a 5-minute repeat with a short silence-after must keep repeating every 5 minutes even if the user never reaches the phone in time to dismiss any given occurrence, or the whole feature would be self-defeating.
+* **It retriggers on its own.** A repeating time alarm's next interval, an every-time temperature alarm's next crossing after re-arming, and the data-loss alarm's next loss episode after reconnecting, all fire and sound again even if the previous occurrence was left missed and never dismissed — and that retrigger implicitly clears the earlier missed status (there is only one slot of runtime state per alarm, no history of separate occurrences, so the fresh occurrence simply replaces the stale one). This is deliberate: the point of a repeating alarm is that a missed occurrence must never hold up the next one — a 5-minute repeat with a short silence-after must keep repeating every 5 minutes even if the user never reaches the phone in time to dismiss any given occurrence, or the whole feature would be self-defeating.
 
-A **one-shot** time alarm and the **duration-reached** alarm are the exception: neither ever fires again on its own once it has fired (one-shot by definition; duration-reached unless re-armed via Extend or Restart), so dismissing is the only way to clear their missed status.
+A **one-shot** time alarm, a **one-shot** temperature alarm and the **duration-reached** alarm are the exception: none of them ever fires again on its own once it has fired (one-shot by definition, until Restart; duration-reached unless re-armed via Extend or Restart), so dismissing is the only way to clear their missed status.
 
 Restart clears missed status for every alarm on the step, including temperature alarms (which Restart otherwise leaves alone) — a restart is a fresh run of the step, and a stale missed flag would otherwise permanently block that one alarm with no other way to clear it.
 
@@ -308,7 +314,7 @@ Presses made while disconnected are therefore lost. That is correct: the thermom
 
 #### Restart
 
-Restart re-arms all time alarms, including the duration-reached alarm. Temperature alarms are not affected because they re-arm themselves by temperature, not time — except that Restart does clear a temperature alarm's missed status, same as every other alarm (see "Missed status" above).
+Restart re-arms all time alarms, including the duration-reached alarm, and every one-shot temperature alarm (a restart is a fresh run of the step, and a one-shot alarm fires once per run). Every-time temperature alarms are not affected because they re-arm themselves by temperature, not time — except that Restart does clear a temperature alarm's missed status, same as every other alarm (see "Missed status" above).
 
 #### Notifications and vibration
 

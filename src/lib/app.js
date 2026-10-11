@@ -263,7 +263,7 @@ export function createAppController(deps = {}) {
   // `claimed` = this instance has a probe assigned. The caller (engine.js)
   // resolves which probe and passes in ITS reading and freshness, so this
   // controller never needs to know probes exist.
-  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, msSinceLastPacket, readingValid, dataLossSilenceAfterMs, claimed = false }) {
+  async function tick(instanceId, { stepAlarmDefs, hasTempInterest, tempBand, duration, tempC, readings = null, msSinceLastPacket, readingValid, dataLossSilenceAfterMs, claimed = false }) {
     const instance = await store.getInstance(instanceId);
     const measured = isMeasured({ claimed, msSinceLastPacket, readingValid });
     const inBand = measured ? isInBand(tempC, tempBand) : instance.lastKnownInBand;
@@ -289,6 +289,7 @@ export function createAppController(deps = {}) {
       msSinceLastPacket,
       measured,
       tempC,
+      readings,
       now: t,
       dataLossSilenceAfterMs,
     });

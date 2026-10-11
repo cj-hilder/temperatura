@@ -4,7 +4,7 @@
 //
 // Alarm definition shapes (owned by recipe.js, read-only here):
 //   { id, kind: "time"|"duration", name, atMs, repeat, intervalMs, theme, silenceAfterMs }
-//   { id, kind: "temperature", name, thresholdC, direction: "heating"|"cooling", theme, silenceAfterMs }
+//   { id, kind: "temperature", name, thresholdC, direction: "heating"|"cooling", oneShot, theme, silenceAfterMs }
 // `silenceAfterMs` is resolved by the caller (engine.js, from the def's theme)
 // before stepAlarmDefs ever reaches this module — alarms.js stays theme-
 // agnostic, it only ever sees a plain number.
@@ -13,7 +13,18 @@
 // specification" section (an app-wide alarm theme, not one the user creates).
 export const DATA_LOSS_ALARM_ID = "__dataLoss";
 
-export const DEFAULT_DEADBAND_C = 2;
+// Re-arm hysteresis for an "every time" temperature alarm: after firing, it
+// re-arms once the reading has gone back across the threshold and then gone
+// this many readings OR this long, whichever comes first, without any reading
+// over the threshold again. Both limits, because probes differ:
+// an FTHERM reports ~1.3×/s, so 5 readings re-arm it in ~4 s, while a BBQ
+// only reports when its value changes — a steady reading back across the
+// threshold may send nothing more, so for it the time limit is what applies.
+// (This replaced a 2 °C deadband, which in practice often never re-armed at
+// all: a pan backing off a degree and coming back is exactly what the user
+// wants to hear about again.)
+export const REARM_SAMPLES = 5;
+export const REARM_MS = 5000;
 export const DATA_LOSS_TIMEOUT_MS = 5000;
 // Fallback only — a real def/theme always supplies its own resolved
 // silenceAfterMs (see alarmPlayer.js's DEFAULT_SILENCE_AFTER_SECONDS, the
@@ -28,13 +39,13 @@ export const DEFAULT_SILENCE_AFTER_MS = 120_000;
 // case exists at all).
 function freshAlarmState(def) {
   return def.kind === "temperature"
-    ? { armed: true, sounding: false, missed: false, firedAt: null, lastAboveThreshold: null }
+    ? { armed: true, sounding: false, missed: false, firedAt: null, lastSide: null, rearm: null, seenN: null }
     : { firedCount: 0, sounding: false, missed: false, firedAt: null }; // "time" and "duration" share this shape.
 }
 
-// Fresh runtime state for a step's alarms — call at Start and at Restart
-// (Restart re-arms every time alarm; temperature alarms re-arm by temperature,
-// not time, so they are NOT reset here even on Restart).
+// Fresh runtime state for a step's alarms — call at Start only. Restart goes
+// through reArmOnRestart instead, which keeps an "every time" temperature
+// alarm's state (it re-arms by temperature, not by time).
 export function initAlarmState(stepAlarmDefs) {
   const state = {};
   for (const def of stepAlarmDefs) {
@@ -44,24 +55,30 @@ export function initAlarmState(stepAlarmDefs) {
   return state;
 }
 
-// Restart re-arms time alarms only — temperature alarms keep their armed/
-// lastAboveThreshold state, since a restart doesn't change the thermometer.
-// `missed` is the one field cleared for EVERY kind including temperature: a
-// restart is a fresh run of the step, and a missed status left over from the
-// previous run has nothing to do with this one.
+// Restart re-arms time alarms and "once" temperature alarms — a "once" alarm
+// fires once per run of the step, and a restart is a fresh run. An "every
+// time" temperature alarm keeps its armed/lastSide state: it re-arms by
+// temperature, and a restart doesn't change the thermometer. `missed` is
+// cleared for EVERY kind: a missed status left over from the previous run
+// has nothing to do with this one.
 export function reArmOnRestart(alarmState, stepAlarmDefs) {
   const next = { ...alarmState };
   for (const def of stepAlarmDefs) {
     // Same missing-entry fallback as evaluateAlarms uses (a def can be added
     // to a running step via an edit, after alarmState was last built) —
     // freshAlarmState, not a bare {missed:false}, so a temperature def that
-    // never had an entry gets a real armed/lastAboveThreshold baseline
-    // instead of undefined fields.
+    // never had an entry gets a real armed/lastSide baseline instead of
+    // undefined fields.
     const prev = next[def.id] ?? freshAlarmState(def);
-    next[def.id] =
-      def.kind === "temperature"
-        ? { ...prev, missed: false }
-        : { firedCount: 0, sounding: false, missed: false, firedAt: null };
+    if (def.kind !== "temperature") {
+      next[def.id] = { firedCount: 0, sounding: false, missed: false, firedAt: null };
+    } else if (def.oneShot) {
+      // lastSide is kept: re-armed, but it still needs a real crossing from
+      // wherever the reading is now, never an instant fire.
+      next[def.id] = { ...prev, armed: true, rearm: null, missed: false };
+    } else {
+      next[def.id] = { ...prev, missed: false };
+    }
   }
   return next;
 }
@@ -87,6 +104,12 @@ export function reArmOnRestart(alarmState, stepAlarmDefs) {
  * @param {number|null} p.msSinceLastPacket - raw connectivity fact, or null if never connected
  * @param {boolean} p.measured - provenance's "Measured" (claimed, within timeout, reading valid)
  * @param {number|null} p.tempC - current raw reading, or null if unusable
+ * @param {Array<{n: number, tempC: number, at: number}>|null} [p.readings] -
+ *   this instance's probe's recent readings, oldest first, each numbered by a
+ *   per-probe counter `n`. Evaluation runs once per tick, not once per
+ *   reading, so this is how the re-arm rule still sees EVERY reading — a
+ *   brief excursion over the threshold between two ticks must reset it.
+ *   null = not available: the tick's own tempC stands in as one reading.
  * @param {number} p.now - epoch ms; the only clock read, used for firedAt
  *   ordering AND for the missed-status timeout below. firedAt must be on one
  *   consistent clock across all three alarm kinds (temperature/time/data-loss)
@@ -108,6 +131,7 @@ export function evaluateAlarms({
   msSinceLastPacket,
   measured,
   tempC,
+  readings = null,
   now,
   dataLossSilenceAfterMs = DEFAULT_SILENCE_AFTER_MS,
 }) {
@@ -125,7 +149,7 @@ export function evaluateAlarms({
     const silenceAfterMs = def.silenceAfterMs ?? DEFAULT_SILENCE_AFTER_MS;
     if (def.kind === "temperature") {
       next[def.id] = applyMissedTransition(
-        evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired),
+        evaluateTemperatureAlarm(def, prev, measured, tempC, readings, now, newlyFired),
         silenceAfterMs,
         now
       );
@@ -169,21 +193,62 @@ function applyMissedTransition(state, silenceAfterMs, now) {
   return state;
 }
 
-function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
-  if (!measured || tempC == null) return prev; // no live data — frozen, no crossing detection
+// Which side of the threshold a reading is on, judged on the reading rounded
+// to 0.1 °C — the resolution the app displays — so an alarm always agrees
+// with the number on screen. Exactly at the threshold is its own side,
+// neither past it nor back from it: a heating alarm at 70 fires on 70.1, and
+// re-arms only from 69.9 or below. Compared in integer tenths so float noise
+// (21.35 * 10 = 213.4999…) can't decide which side a reading lands on.
+export function thresholdSide(tempC, thresholdC) {
+  const r = Math.round(tempC * 10);
+  const t = Math.round(thresholdC * 10);
+  return r > t ? "above" : r < t ? "below" : "at";
+}
 
-  const isAbove = tempC > def.thresholdC;
-  let { armed, sounding, missed, firedAt, lastAboveThreshold } = prev;
+// State saved before `lastSide` existed has `lastAboveThreshold` instead —
+// true/false meant above / not above.
+function lastSideOf(prev) {
+  if (prev.lastSide !== undefined) return prev.lastSide;
+  if (prev.lastAboveThreshold == null) return null;
+  return prev.lastAboveThreshold ? "above" : "below";
+}
 
-  if (lastAboveThreshold === null) {
-    // First observation establishes a baseline — never fires on this sample,
-    // which is exactly the "starts already above threshold, never fires" rule.
-    return { ...prev, lastAboveThreshold: isAbove };
+// The readings this evaluation hasn't seen yet. Without a usable bookmark —
+// first evaluation, right after a data gap, or a counter that went backwards
+// because a different probe is in use now — only the latest reading is
+// taken: anything older is from a stretch nobody was watching for this alarm.
+function unseenReadings(readings, seenN) {
+  const latest = readings[readings.length - 1];
+  if (seenN == null || latest.n < seenN) return [latest];
+  return readings.filter((r) => r.n > seenN);
+}
+
+function evaluateTemperatureAlarm(def, prev, measured, tempC, readings, now, newlyFired) {
+  // No live data: frozen, no crossing detection. A re-arm in progress starts
+  // over — "without going over the threshold again" can't vouch for time
+  // nobody observed — and the reading bookmark is dropped for the same reason.
+  if (!measured || tempC == null) {
+    return prev.rearm || prev.seenN != null ? { ...prev, rearm: null, seenN: null } : prev;
   }
 
-  const crossedUp = lastAboveThreshold === false && isAbove === true;
-  const crossedDown = lastAboveThreshold === true && isAbove === false;
-  const fires = def.direction === "heating" ? crossedUp : crossedDown;
+  const side = thresholdSide(tempC, def.thresholdC);
+  const lastSide = lastSideOf(prev);
+  let { armed, sounding, missed, firedAt } = prev;
+  let rearm = prev.rearm ?? null;
+  const hasReadings = !!readings && readings.length > 0;
+  const fresh = hasReadings ? unseenReadings(readings, prev.seenN ?? null) : [{ tempC, at: now }];
+  const seenN = hasReadings ? readings[readings.length - 1].n : null;
+  // Heating fires on reaching "above" from anywhere else; cooling mirrors it.
+  const firingSide = def.direction === "heating" ? "above" : "below";
+  const farSide = def.direction === "heating" ? "below" : "above";
+
+  if (lastSide === null) {
+    // First observation establishes a baseline — never fires on this sample,
+    // which is exactly the "starts already above threshold, never fires" rule.
+    return { armed, sounding, missed, firedAt, lastSide: side, rearm, seenN };
+  }
+
+  const fires = side === firingSide && lastSide !== firingSide;
 
   // A fresh crossing fires and re-sounds even if the PREVIOUS occurrence is
   // still sounding or sitting missed-and-undismissed — there is only one
@@ -200,16 +265,28 @@ function evaluateTemperatureAlarm(def, prev, measured, tempC, now, newlyFired) {
     newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
   }
 
-  // Deadband re-arm: heating re-arms below T-deadband, cooling above T+deadband.
-  if (!armed) {
-    const reArmed =
-      def.direction === "heating"
-        ? tempC < def.thresholdC - DEFAULT_DEADBAND_C
-        : tempC > def.thresholdC + DEFAULT_DEADBAND_C;
-    if (reArmed) armed = true;
+  // Re-arm ("every time" only — a "once" alarm stays spent until Restart).
+  // The count starts at a reading back across the threshold by any amount;
+  // every later reading that isn't over the threshold adds one (exactly AT
+  // it isn't over it), and any reading over it cancels the count, so it has
+  // to start again from the next reading back across. Re-armed after
+  // REARM_SAMPLES readings or REARM_MS since the count started.
+  if (armed || def.oneShot) {
+    rearm = null;
+  } else {
+    for (const r of fresh) {
+      const rSide = thresholdSide(r.tempC, def.thresholdC);
+      if (rSide === firingSide) rearm = null;
+      else if (rearm) rearm = { ...rearm, count: rearm.count + 1 };
+      else if (rSide === farSide) rearm = { at: r.at, count: 1 };
+    }
+    if (rearm && (rearm.count >= REARM_SAMPLES || now - rearm.at >= REARM_MS)) {
+      armed = true;
+      rearm = null;
+    }
   }
 
-  return { armed, sounding, missed, firedAt, lastAboveThreshold: isAbove };
+  return { armed, sounding, missed, firedAt, lastSide: side, rearm, seenN };
 }
 
 function evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired) {

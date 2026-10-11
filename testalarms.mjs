@@ -11,6 +11,7 @@ import {
   themeIdForAlarmId,
   DATA_LOSS_ALARM_ID,
   DATA_LOSS_TIMEOUT_MS,
+  thresholdSide,
 } from './src/lib/alarms.js';
 
 let pass = 0, fail = 0;
@@ -33,60 +34,188 @@ function baseArgs(overrides = {}) {
   };
 }
 
-console.log('\nDeadband: jitter across a threshold fires once, re-arms only at T-2:');
-{
-  const def = { id: 'heat1', kind: 'temperature', name: 'Heat', thresholdC: 60, direction: 'heating', theme: null };
+// A tick-by-tick driver over one def, fed the way the real probe feeds it:
+// each step() is one 1 s tick, given the readings that arrived since the last
+// tick (oldest first, numbered like the probe manager numbers them). The
+// tick's own tempC is the latest of them. step([]) = a tick with no new
+// reading (a BBQ holding steady), keeping the previous latest.
+function driver(def) {
   let state = initAlarmState([def]);
   let now = 0;
-  const step = (tempC) => {
-    now += 1000;
-    const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC, now }));
+  let n = 0;
+  let buffer = [];
+  const step = (temps, { measured = true, dt = 1000 } = {}) => {
+    const list = Array.isArray(temps) ? temps : [temps];
+    list.forEach((tempC, i) => buffer.push({ n: ++n, tempC, at: now + ((i + 1) * dt) / (list.length + 1) }));
+    buffer = buffer.slice(-32);
+    now += dt;
+    const latest = buffer[buffer.length - 1];
+    const r = evaluateAlarms(baseArgs({
+      stepAlarmDefs: [def], alarmState: state, measured,
+      tempC: measured ? latest?.tempC ?? null : null,
+      readings: measured ? buffer : null, now,
+    }));
     state = r.alarmState;
     return r;
   };
+  return { step, get state() { return state[def.id]; }, setState: (s) => { state = s; }, get all() { return state; } };
+}
+const fired = (r, id) => r.newlyFired.some((f) => f.id === id);
+const heat60 = { id: 'heat1', kind: 'temperature', name: 'Heat', thresholdC: 60, direction: 'heating', theme: null };
 
-  step(58); // baseline, below threshold — establishes lastAboveThreshold=false, no fire
-  let r = step(61); // crosses up — fires
-  ok('fires on upward crossing', r.newlyFired.some(f => f.id === 'heat1'), JSON.stringify(r.newlyFired));
-
-  // Jitter around the threshold without dropping below T-2 (58) — must not re-fire.
-  r = step(59.9);
-  r = step(60.5);
-  r = step(59.5);
-  r = step(60.8);
-  ok('jitter across threshold does not re-fire (deadband holds)', r.newlyFired.length === 0, JSON.stringify(r.newlyFired));
-
-  // Still above T-2 — re-arm must not have happened yet.
-  r = step(58.5);
-  ok('reading above T-2 does not re-arm', state.heat1.armed === false);
-
-  // Drop below T-2 (58) to re-arm, then cross up again — should fire again.
-  r = step(57.9);
-  ok('drop below T-2 re-arms', state.heat1.armed === true);
-  r = step(61);
-  ok('re-armed alarm fires again on next upward crossing', r.newlyFired.some(f => f.id === 'heat1'));
+console.log('\nRe-arm: 5 readings in a row without going over the threshold again:');
+{
+  const d = driver(heat60);
+  d.step(58); // baseline, below threshold — no fire
+  ok('fires on upward crossing', fired(d.step(61), 'heat1'));
+  d.step([59.5, 59.4]); // readings 1 and 2 back below
+  d.step([59.3, 59.2]); // 3 and 4
+  ok('4 readings back below is not enough', d.state.armed === false);
+  d.step([59.1]); // 5
+  ok('the 5th reading re-arms (well inside 5 s)', d.state.armed === true);
+  ok('re-armed alarm fires again on the next crossing', fired(d.step(61), 'heat1'));
 }
 
-console.log('\nCooling alarm is the mirror (fires downward, re-arms above T+2):');
+console.log('\nRe-arm: any reading over the threshold during the count cancels it — even one between two ticks:');
 {
-  const def = { id: 'cool1', kind: 'temperature', name: 'Cool', thresholdC: 20, direction: 'cooling', theme: null };
+  const d = driver(heat60);
+  d.step(58);
+  d.step(61); // fires
+  d.step([59, 59, 59]);
+  d.step([60.2, 59]); // a reading over 60 BETWEEN ticks; the tick itself sees 59
+  ok('an excursion over the threshold between ticks resets the count', d.state.armed === false && d.state.rearm?.count === 1);
+  d.step([59, 59, 59]);
+  ok('4 in a row after the excursion: not yet', d.state.armed === false);
+  d.step([59]);
+  ok('the 5th in a row after the excursion re-arms', d.state.armed === true);
+
+  const j = driver(heat60);
+  j.step(58);
+  j.step(61);
+  let refired = false;
+  for (const t of [[59.9, 60.5], [59.5, 60.8], [59.8, 61]]) refired = refired || fired(j.step(t), 'heat1');
+  ok('jitter across the threshold never re-arms and never re-fires', !refired && j.state.armed === false);
+}
+
+console.log('\nRe-arm: exactly AT the threshold (rounded) is not over it:');
+{
+  const d = driver(heat60);
+  d.step(58);
+  d.step(61);
+  d.step([59.9, 60, 60.04]); // 59.9 starts the count; 60.0 and 60.04 (shows 60.0) aren't over
+  ok('readings at the threshold do not cancel the count, and count towards it', d.state.rearm?.count === 3);
+  d.step([60, 59.96]);
+  ok('so 5 readings re-arm', d.state.armed === true);
+
+  const a = driver(heat60);
+  a.step(58);
+  a.step(61);
+  a.step([60, 60, 60, 60, 60, 60]);
+  ok('but the count only STARTS on a reading back across by some amount', a.state.armed === false && a.state.rearm === null);
+  a.step([59.94]); // shows 59.9
+  ok('0.1 back (rounded) starts it', a.state.rearm?.count === 1);
+}
+
+console.log('\nRe-arm: or 5 seconds without going over, when readings are slow (a BBQ holding steady):');
+{
+  const d = driver(heat60);
+  d.step(58);
+  d.step(61);
+  d.step([59]); // count starts (reading at +0.5 s into this tick)
+  for (let i = 0; i < 4; i++) d.step([]); // nothing new
+  ok('under 5 s with no new reading is not enough', d.state.armed === false);
+  d.step([]);
+  ok('5 s after the reading back across re-arms', d.state.armed === true);
+}
+
+console.log('\nRe-arm: a data gap cancels the count, and readings from during the gap are ignored:');
+{
+  const d = driver(heat60);
+  d.step(58);
+  d.step(61);
+  d.step([59, 59, 59]);
+  d.step([59, 59], { measured: false }); // unassigned / no live data for this instance
+  d.step([59]);
+  ok('the count starts over after the gap from one reading', d.state.armed === false && d.state.rearm?.count === 1);
+  d.step([59, 59, 59, 59]);
+  ok('5 in a row after the gap re-arms', d.state.armed === true);
+}
+
+console.log('\nRe-arm: a reading counter that goes backwards (a different probe) does not freeze evaluation:');
+{
+  const def = heat60;
   let state = initAlarmState([def]);
-  let now = 0;
-  const step = (tempC) => {
-    now += 1000;
-    const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC, now }));
+  const tick = (now, readings) => {
+    const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC: readings[readings.length - 1].tempC, readings, now }));
     state = r.alarmState;
     return r;
   };
-  step(25); // baseline above threshold
-  let r = step(18); // crosses down — fires
-  ok('cooling fires on downward crossing', r.newlyFired.some(f => f.id === 'cool1'));
-  r = step(19);
-  ok('no re-fire while still below T+2', r.newlyFired.length === 0);
-  r = step(22.5); // above T+2 (22) — re-arms
-  ok('rises above T+2 re-arms', state.cool1.armed === true);
-  r = step(18);
-  ok('re-armed cooling alarm fires again', r.newlyFired.some(f => f.id === 'cool1'));
+  tick(1000, [{ n: 500, tempC: 58, at: 900 }]);
+  tick(2000, [{ n: 501, tempC: 61, at: 1900 }]); // fires; bookmark at 501
+  tick(3000, [{ n: 3, tempC: 59, at: 2900 }]); // new probe, counting from 3
+  ok('the new probe\'s reading is taken and starts the count', state.heat1.rearm?.count === 1 && state.heat1.seenN === 3);
+}
+
+console.log('\nRe-arm: with no readings list (older callers), the tick\'s reading stands in as one reading per tick:');
+{
+  let state = initAlarmState([heat60]);
+  const tick = (now, tempC) => { const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [heat60], alarmState: state, tempC, now })); state = r.alarmState; return r; };
+  tick(1000, 58);
+  tick(2000, 61);
+  for (let t = 3000; t <= 6000; t += 1000) tick(t, 59);
+  ok('4 ticks back below: not yet', state.heat1.armed === false);
+  tick(7000, 59);
+  ok('the 5th re-arms', state.heat1.armed === true);
+}
+
+console.log('\nFiring is judged on the rounded reading too, so it agrees with the display:');
+{
+  const def = { id: 'heat70', kind: 'temperature', name: 'Hot', thresholdC: 70, direction: 'heating', theme: null };
+  const d = driver(def);
+  d.step(65);
+  ok('70.04 (shows 70.0) does not fire a 70° heating alarm', !fired(d.step(70.04), 'heat70'));
+  ok('70.06 (shows 70.1) does', fired(d.step(70.06), 'heat70'));
+  ok('thresholdSide compares integer tenths, immune to float noise (0.1 + 0.2 vs 0.3)', thresholdSide(0.1 + 0.2, 0.3) === 'at');
+  ok('thresholdSide: above / at / below', thresholdSide(60.1, 60) === 'above' && thresholdSide(60.04, 60) === 'at' && thresholdSide(59.9, 60) === 'below');
+}
+
+console.log('\nCooling alarm is the mirror (fires going below, re-arms after 5 readings without going below again):');
+{
+  const def = { id: 'cool1', kind: 'temperature', name: 'Cool', thresholdC: 20, direction: 'cooling', theme: null };
+  const d = driver(def);
+  d.step(25); // baseline above threshold
+  ok('reaching exactly 20.0 does not fire', !fired(d.step(20), 'cool1'));
+  ok('19.9 fires', fired(d.step(19.9), 'cool1'));
+  d.step([20.1, 20.2, 19.8, 20.1]); // a reading back below cancels
+  ok('a reading below again cancels the count', d.state.armed === false && d.state.rearm?.count === 1);
+  d.step([20.1, 20.1, 20.1, 20.1]);
+  ok('5 in a row back above re-arms', d.state.armed === true);
+  ok('re-armed cooling alarm fires again', fired(d.step(18), 'cool1'));
+}
+
+console.log('\n"Once" (oneShot) temperature alarm: fires once per run, Restart re-arms it:');
+{
+  const def = { id: 'once1', kind: 'temperature', name: 'Pan hot', thresholdC: 60, direction: 'heating', oneShot: true, theme: null };
+  const d = driver(def);
+  d.step(55);
+  ok('fires on the first crossing', fired(d.step(65), 'once1'));
+  for (let i = 0; i < 10; i++) d.step([50, 50]); // plenty to re-arm an "every time" alarm
+  ok('never re-arms by temperature', d.state.armed === false);
+  ok('never fires again', !fired(d.step(65), 'once1'));
+
+  d.setState(reArmOnRestart(d.all, [def]));
+  ok('Restart re-arms it', d.state.armed === true);
+  ok('...but still needs a real crossing: already above, no instant fire', !fired(d.step(66), 'once1'));
+  d.step(50);
+  ok('fires again on the next crossing after Restart', fired(d.step(65), 'once1'));
+}
+
+console.log('\nState saved before lastSide existed (lastAboveThreshold) still evaluates:');
+{
+  const def = heat60;
+  const legacy = { ...initAlarmState([def]), heat1: { armed: true, sounding: false, missed: false, firedAt: null, lastAboveThreshold: false } };
+  const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: legacy, tempC: 65, now: 1000 }));
+  ok('a legacy "not above" baseline fires on crossing up', fired(r, 'heat1') && r.alarmState.heat1.lastSide === 'above');
 }
 
 console.log('\nA heating alarm whose step starts already above threshold never fires:');
@@ -154,7 +283,7 @@ console.log('\nClaim handover mid-step: losing the claim freezes temperature eva
   // Claim transferred away — no live reading for this instance anymore.
   r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, claimed: false, measured: false, tempC: null, now: 2000 }));
   state = r.alarmState;
-  ok('unclaimed/unmeasured tick does not change temp alarm state', state.heat3.lastAboveThreshold === false);
+  ok('unclaimed/unmeasured tick does not change temp alarm state', state.heat3.lastSide === 'below');
   r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, claimed: false, measured: false, tempC: null, now: 3000 }));
   ok('no fire while unclaimed even if a real crossing might be happening unseen', r.newlyFired.length === 0);
   // Claim returns — evaluation resumes normally from wherever the temp actually is.
@@ -455,7 +584,7 @@ console.log('\nMissed status: a repeating time alarm retriggers on its next inte
   ok('can still be dismissed explicitly ahead of the next retrigger', dismissed === 'rep1' && state.rep1.missed === false);
 }
 
-console.log('\nMissed status: a temperature alarm re-arming by deadband retriggers over a still-missed earlier occurrence:');
+console.log('\nMissed status: a temperature alarm that re-arms retriggers over a still-missed earlier occurrence:');
 {
   const def = { id: 'heat1', kind: 'temperature', name: 'Heat', thresholdC: 60, direction: 'heating', theme: null, silenceAfterMs: 2000 };
   let state = initAlarmState([def]);
@@ -469,12 +598,14 @@ console.log('\nMissed status: a temperature alarm re-arming by deadband retrigge
   state = r.alarmState;
   ok('goes missed', state.heat1.missed === true && state.heat1.sounding === false);
 
-  // Drop below T-2 to re-arm, then cross up again — must fire again even
+  // Back below for 5 s to re-arm, then cross up again — must fire again even
   // though the previous occurrence is still missed, implicitly dismissing it.
   r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC: 50, now: 4000 }));
   state = r.alarmState;
-  ok('deadband re-arm happens normally', state.heat1.armed === true);
-  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC: 65, now: 5000 }));
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC: 50, now: 9000 }));
+  state = r.alarmState;
+  ok('re-arm happens normally', state.heat1.armed === true);
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, tempC: 65, now: 10000 }));
   state = r.alarmState;
   ok('fires again on the fresh crossing even though still missed from before', r.newlyFired.some(f => f.id === 'heat1'));
   ok('the retrigger implicitly dismisses the earlier missed occurrence', state.heat1.missed === false && state.heat1.sounding === true);
@@ -551,14 +682,14 @@ console.log('\nreArmOnRestart clears missed for every alarm kind, including temp
   state = reArmOnRestart(state, [timeDef, tempDef]);
   ok('restart clears missed on the time alarm', state.time1.missed === false);
   ok('restart clears missed on the temperature alarm too (the one thing Restart otherwise leaves alone)', state.heat1.missed === false);
-  ok('restart still preserves the temperature alarm\'s armed/lastAboveThreshold (unlike a full reset)', state.heat1.armed === false && state.heat1.lastAboveThreshold === true);
+  ok('restart still preserves an "every time" temperature alarm\'s armed/lastSide (unlike a full reset)', state.heat1.armed === false && state.heat1.lastSide === 'above');
 
   // A def with no prior entry at all (edited in during the run) must also
   // get a real baseline, not a bare {missed:false}.
   const newTempDef = { id: 'cool1', kind: 'temperature', name: 'Cool', thresholdC: 20, direction: 'cooling', theme: null };
   state = reArmOnRestart(state, [newTempDef]);
   ok('a def with no prior entry gets a full fresh baseline via restart, not a partial object',
-    state.cool1.armed === true && state.cool1.sounding === false && state.cool1.missed === false && state.cool1.lastAboveThreshold === null);
+    state.cool1.armed === true && state.cool1.sounding === false && state.cool1.missed === false && state.cool1.lastSide === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
