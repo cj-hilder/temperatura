@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import { createBlankStep } from "./lib/recipe.js";
+import { createBlankStep, moveItem, withEditKeys, withoutEditKeys } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
-// Reorderable steps list — smooth drag via Pointer Events, not a library:
+// Reorderable list (steps, ingredients) — smooth drag via Pointer Events, not a library:
 // this is an Android PWA, and HTML5's native `draggable` attribute is a
 // mouse-era API with poor/inconsistent touch support, which is the only
 // input this app actually needs to handle well. Pointer Events unify
@@ -10,15 +10,16 @@ import * as t from "./theme.js";
 // handle keeps receiving move/up events even once the pointer has moved off
 // it — exactly what a drag handle needs.
 //
-// The underlying `steps` array is left untouched for the whole drag; only a
+// The underlying array is left untouched for the whole drag; only a
 // CSS transform per row is updated (translateY, driven straight off the
 // pointer's total movement for the dragged row — always exact, never
 // drifts). Neighboring rows are shifted by one row-height with their own
 // CSS transition, which is what makes them visibly slide out of the way
 // instead of snapping. The array itself is only spliced once, on release —
 // by then every row's transform already shows the end state, so the actual
-// reorder is invisible.
-function DraggableSteps({ steps, onReorder, renderRow }) {
+// reorder is invisible. That last step needs every row to have a stable
+// `getKey` — see withEditKeys for why ingredients get throwaway keys.
+function DraggableList({ items, getKey, onReorder, renderRow }) {
   const rowRefs = useRef([]);
   const dragInfo = useRef(null); // { startY, rowHeight, startIndex } — not visual, no re-render needed
   const [dragIndex, setDragIndex] = useState(null);
@@ -38,7 +39,7 @@ function DraggableSteps({ steps, onReorder, renderRow }) {
     const { startY, rowHeight, startIndex } = dragInfo.current;
     const dy = e.clientY - startY;
     setDeltaY(dy);
-    setOverIndex(Math.max(0, Math.min(steps.length - 1, startIndex + Math.round(dy / rowHeight))));
+    setOverIndex(Math.max(0, Math.min(items.length - 1, startIndex + Math.round(dy / rowHeight))));
   };
 
   const endDrag = () => {
@@ -53,7 +54,7 @@ function DraggableSteps({ steps, onReorder, renderRow }) {
 
   return (
     <>
-      {steps.map((step, i) => {
+      {items.map((item, i) => {
         let transform = 0;
         if (dragIndex != null) {
           if (i === dragIndex) transform = deltaY;
@@ -62,7 +63,7 @@ function DraggableSteps({ steps, onReorder, renderRow }) {
         }
         return (
           <div
-            key={step.id}
+            key={getKey(item)}
             ref={(el) => (rowRefs.current[i] = el)}
             style={{
               display: "flex",
@@ -84,7 +85,7 @@ function DraggableSteps({ steps, onReorder, renderRow }) {
             >
               ⠿
             </button>
-            {renderRow(step, i)}
+            {renderRow(item, i)}
           </div>
         );
       })}
@@ -98,7 +99,7 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
   const [description, setDescription] = useState(recipe.description);
   const [servings, setServings] = useState(recipe.servings);
   const [notes, setNotes] = useState(recipe.notes);
-  const [ingredients, setIngredients] = useState(recipe.ingredients);
+  const [ingredients, setIngredients] = useState(() => withEditKeys(recipe.ingredients, () => crypto.randomUUID()));
   const [steps, setSteps] = useState(recipe.steps);
   const [error, setError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -107,25 +108,20 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
   const updateNote = (i, v) => setNotes(notes.map((n, j) => (j === i ? v : n)));
   const removeNote = (i) => setNotes(notes.filter((_, j) => j !== i));
 
-  const addIngredient = () => setIngredients([...ingredients, { name: "", quantity: "", unit: "" }]);
+  const addIngredient = () => setIngredients([...ingredients, { name: "", quantity: "", unit: "", _key: crypto.randomUUID() }]);
   const updateIngredient = (i, patch) => setIngredients(ingredients.map((ing, j) => (j === i ? { ...ing, ...patch } : ing)));
   const removeIngredient = (i) => setIngredients(ingredients.filter((_, j) => j !== i));
+  const reorderIngredients = (from, to) => setIngredients((prev) => moveItem(prev, from, to));
 
   const addStep = () => setSteps([...steps, createBlankStep(crypto.randomUUID())]);
   const updateStepName = (i, v) => setSteps(steps.map((s, j) => (j === i ? { ...s, name: v } : s)));
   const removeStep = (i) => setSteps(steps.filter((_, j) => j !== i));
-  const reorderSteps = (from, to) =>
-    setSteps((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
+  const reorderSteps = (from, to) => setSteps((prev) => moveItem(prev, from, to));
 
   const save = async () => {
     setError(null);
     try {
-      await app.updateRecipe(recipe.id, { name, description, servings, notes, ingredients, steps });
+      await app.updateRecipe(recipe.id, { name, description, servings, notes, ingredients: withoutEditKeys(ingredients), steps });
       onDone();
     } catch (e) {
       setError(e.message);
@@ -167,22 +163,28 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
         <button style={t.smallButton} onClick={addNote}>+ Add note</button>
 
         <label style={t.label}>Ingredients</label>
-        {ingredients.map((ing, i) => (
-          <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-            <input style={{ ...t.input, flex: 2 }} placeholder="Name" value={ing.name} onChange={(e) => updateIngredient(i, { name: e.target.value })} />
-            <input style={{ ...t.input, flex: 1 }} placeholder="0.5 or 1/2" value={ing.quantity} onChange={(e) => updateIngredient(i, { quantity: e.target.value })} />
-            <input style={{ ...t.input, flex: 1 }} placeholder="Unit" value={ing.unit} onChange={(e) => updateIngredient(i, { unit: e.target.value })} />
-            <button style={t.smallButton} onClick={() => removeIngredient(i)}>✕</button>
-          </div>
-        ))}
+        <DraggableList
+          items={ingredients}
+          getKey={(ing) => ing._key}
+          onReorder={reorderIngredients}
+          renderRow={(ing, i) => (
+            <>
+              <input style={{ ...t.input, flex: 2 }} placeholder="Name" value={ing.name} onChange={(e) => updateIngredient(i, { name: e.target.value })} />
+              <input style={{ ...t.input, flex: 1 }} placeholder="0.5 or 1/2" value={ing.quantity} onChange={(e) => updateIngredient(i, { quantity: e.target.value })} />
+              <input style={{ ...t.input, flex: 1 }} placeholder="Unit" value={ing.unit} onChange={(e) => updateIngredient(i, { unit: e.target.value })} />
+              <button style={t.smallButton} onClick={() => removeIngredient(i)}>✕</button>
+            </>
+          )}
+        />
         <button style={t.smallButton} onClick={addIngredient}>+ Add ingredient</button>
 
         <label style={t.label}>Steps</label>
         <p style={{ fontSize: 12, color: t.colors.textMuted, marginTop: -4 }}>
           Duration, temperature band, and alarms are edited on the step's own page.
         </p>
-        <DraggableSteps
-          steps={steps}
+        <DraggableList
+          items={steps}
+          getKey={(step) => step.id}
           onReorder={reorderSteps}
           renderRow={(step, i) => (
             <>

@@ -121,6 +121,25 @@ export function sortTempAlarms(tempAlarms) {
   });
 }
 
+// Drag-to-reorder in the recipe editor (steps and ingredients): the item at
+// `from` lands at `to`, everything between shifts by one. A new array; an
+// out-of-range index changes nothing.
+export function moveItem(list, from, to) {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
+  const next = [...list];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+// Ingredients have no id of their own, but a drag list needs a stable key per
+// row: keyed by position, the rows that slid aside during a drag would be
+// re-filled with their new neighbours' contents on release and visibly slide
+// back with the wrong text. So the editor tags each with a throwaway `_key`
+// while editing and strips it on save — it never reaches storage or exports.
+export const withEditKeys = (list, newKey) => list.map((item) => ({ ...item, _key: newKey() }));
+export const withoutEditKeys = (list) => list.map(({ _key, ...item }) => item);
+
 // The duration-reached alarm's id, derived from the step id alone (a step
 // has at most one) — shared by buildStepAlarmDefs, app.js's extend-duration
 // flow, and engine.js's notification wiring, so the naming convention lives

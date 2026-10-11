@@ -1,5 +1,5 @@
 import { Store, MemoryBackend, STORES, DEFAULT_THEME_ID } from './src/lib/storage.js';
-import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId, sortTimeAlarms, sortTempAlarms } from './src/lib/recipe.js';
+import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId, sortTimeAlarms, sortTempAlarms, moveItem, withEditKeys, withoutEditKeys } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -284,6 +284,29 @@ console.log('\nsortTempAlarms — heating ascending, then cooling descending:');
   const sorted = sortTempAlarms(alarms);
   ok('heating group first, ascending; cooling group after, descending',
     sorted.map((a) => a.id).join(',') === 'heat-low,heat-high,cool-high,cool-low');
+}
+
+console.log('\nmoveItem — drag-to-reorder in the recipe editor:');
+{
+  const l = ['a', 'b', 'c', 'd'];
+  ok('down: a to index 2', moveItem(l, 0, 2).join('') === 'bcad');
+  ok('up: d to index 1', moveItem(l, 3, 1).join('') === 'adbc');
+  ok('to the end', moveItem(l, 1, 3).join('') === 'acdb');
+  ok('to the start', moveItem(l, 2, 0).join('') === 'cabd');
+  ok('same place: unchanged', moveItem(l, 1, 1) === l);
+  ok('out of range: unchanged', moveItem(l, 0, 9) === l && moveItem(l, -1, 0) === l);
+  ok('never mutates the original', l.join('') === 'abcd');
+}
+
+console.log('\nwithEditKeys / withoutEditKeys — throwaway row keys for ingredients:');
+{
+  let n = 0;
+  const ings = [{ name: 'Flour', quantity: '500', unit: 'g' }, { name: 'Salt', quantity: '', unit: '' }];
+  const keyed = withEditKeys(ings, () => `k${++n}`);
+  ok('each ingredient gets its own key', keyed[0]._key === 'k1' && keyed[1]._key === 'k2' && keyed[0].name === 'Flour');
+  const reordered = withoutEditKeys(moveItem(keyed, 1, 0));
+  ok('keys are stripped on the way out, order kept', JSON.stringify(reordered) === JSON.stringify([ings[1], ings[0]]));
+  ok('the stored ingredients never had keys added', !('_key' in ings[0]));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

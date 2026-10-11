@@ -100,7 +100,7 @@ Tapping a tile causes the recipe page to appear, showing the recipe
 
 Icon row at the top: home, edit, hamburger, connect
 
-* Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps. Steps are also draggable by a handle to reorder them — the order set here is the order steps are listed in throughout the app (this page's own step tiles, and Previous/Next on the step page).
+* Edit: all of the recipe components become editable \- tap a component to edit it, you can also add and delete ingredients and steps. Steps and ingredients are also draggable by a handle to reorder them — the step order set here is the order steps are listed in throughout the app (this page's own step tiles, and Previous/Next on the step page), and the ingredient order is the order they are listed in on the Recipe page, in the PDF export and in the JSON export.
 
 Current temperature (if any probe is connected): one line per connected probe, raw readings, as on the home page.  
 The main page contains
