@@ -154,6 +154,60 @@ console.log('\nTier 3 — falls back to the picker, restricted to that probe\'s 
   ok('a cancelled picker rethrows and leaves the probe disconnected (not stuck "connecting")', threw && byId(m2, 'x').state === 'disconnected');
 }
 
+console.log('\nReconnecting through the picker when Chrome has issued a NEW device id (Android, no getDevices):');
+{
+  // Last session this BBQ was "dev-bbq-old"; this session the picker hands
+  // back the same physical probe as "dev-bbq-new".
+  const bbq = fakeDevice({ id: 'dev-bbq-new', kind: 'bbq' });
+  const { mgr, log } = harness({ permitted: [], picks: [bbq], known: [{ id: 'dev-bbq-old', kind: 'bbq', name: 'Wireless' }] });
+  const got = await mgr.connect('dev-bbq-old');
+  ok('Connect on "Wireless" connects Wireless itself', got === 'dev-bbq-old' && byId(mgr, 'dev-bbq-old').connected && byId(mgr, 'dev-bbq-old').name === 'Wireless');
+  ok('no new "BBQ 1" was created', mgr.snapshot().length === 1);
+  ok('the new device id is remembered for next time, under the same probe', log.known.length === 1 && log.known[0].id === 'dev-bbq-old' && log.known[0].deviceId === 'dev-bbq-new');
+  bbq.emit(bbqBytes('W21.3'));
+  ok('its readings arrive under the same probe', byId(mgr, 'dev-bbq-old').sample.tempC === 21.3);
+}
+
+console.log('\n...and a later session with getDevices finds it by its remembered device id:');
+{
+  const bbq = fakeDevice({ id: 'dev-bbq-new', kind: 'bbq' });
+  const { mgr, log } = harness({ permitted: [bbq], known: [{ id: 'dev-bbq-old', kind: 'bbq', name: 'Wireless', deviceId: 'dev-bbq-new' }] });
+  await mgr.connect('dev-bbq-old');
+  ok('tier 2 matches on deviceId, no picker', byId(mgr, 'dev-bbq-old').connected && log.pickerOptions.length === 0);
+}
+
+console.log('\nA stale duplicate from an earlier session gives up the device id it was holding:');
+{
+  // "BBQ 2" was created by the old behaviour this session for the same probe.
+  const bbq = fakeDevice({ id: 'dev-now', kind: 'bbq' });
+  const { mgr, log } = harness({
+    permitted: [], picks: [bbq],
+    known: [{ id: 'orig', kind: 'bbq', name: 'Wireless' }, { id: 'dev-now', kind: 'bbq', name: 'BBQ 2' }],
+  });
+  await mgr.connect('orig');
+  ok('Connect on "Wireless" wins over the duplicate that held the id', byId(mgr, 'orig').connected && !byId(mgr, 'dev-now').connected);
+  const dup = log.known.find((k) => k.id === 'dev-now');
+  ok('the duplicate keeps its name (to be forgotten) but no longer claims the device', dup.name === 'BBQ 2' && dup.deviceId === null);
+  ok('Wireless now holds that device id', log.known.find((k) => k.id === 'orig').deviceId === 'dev-now');
+}
+
+console.log('\nPicking a device that is live right now as another probe does not take it over:');
+{
+  const live = fakeDevice({ id: 'dev-a', kind: 'bbq' });
+  const { mgr } = harness({ permitted: [], picks: [live, live], known: [{ id: 'dev-a', kind: 'bbq', name: 'Left' }, { id: 'other', kind: 'bbq', name: 'Right' }] });
+  await mgr.connect('dev-a'); // Left connects (tier 3, same id)
+  const got = await mgr.connect('other'); // the user picks the same, already-connected device for Right
+  ok('the connect resolves to the probe already using it', got === 'dev-a');
+  ok('Right is not stuck "connecting" and Left is untouched', byId(mgr, 'other').state === 'disconnected' && byId(mgr, 'dev-a').connected);
+}
+
+console.log('\nAdd probe still adds a NEW probe for an unknown device:');
+{
+  const { mgr } = harness({ picks: [fakeDevice({ id: 'dev-x', kind: 'bbq' })], known: [{ id: 'orig', kind: 'bbq', name: 'Wireless' }] });
+  const id = await mgr.addProbe();
+  ok('a second probe, "BBQ 1"', id === 'dev-x' && mgr.snapshot().length === 2 && byId(mgr, id).name === 'BBQ 1');
+}
+
 console.log('\nSamples, battery and presses per probe:');
 {
   const ft = fakeDevice({ id: 'dev-ft', kind: 'ftherm' });

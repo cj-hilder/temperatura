@@ -1,8 +1,16 @@
 // The probe manager: one independent GATT connection per probe. Follows the
 // three-tier connect and bounded reconnect of ble-hr-tool (build-plan §3),
-// but per probe, and keyed by Web Bluetooth's stable `device.id` — the old
-// single-device code took `getDevices()[0]`, which is simply wrong once more
-// than one device has been permitted.
+// but per probe — the old single-device code took `getDevices()[0]`, which is
+// simply wrong once more than one device has been permitted.
+//
+// A probe's identity is its own `id` (what assignments, names and the UI hang
+// off), NOT Web Bluetooth's `device.id`, which is kept separately as
+// `deviceId`. On Android Chrome without the persistent-permissions backend
+// there is no getDevices(), so every reconnect goes through the picker — and
+// the picker hands back a NEW device.id each session for the same physical
+// probe. Keying probes by device.id therefore turned every reconnect into a
+// fresh "BBQ 2", "BBQ 3"…. Instead, Connect on a named probe binds whatever
+// device the user picks to that probe, updating its deviceId.
 //
 // `getBluetooth`, `now` and `delay` are injected so Node tests can drive the
 // whole thing with a fake GATT; `getBluetooth` is a function, not a captured
@@ -60,9 +68,12 @@ export function createProbeManager({
     return `${label} ${n}`;
   }
 
-  function createRecord({ id, kind, name }, { register = true } = {}) {
+  // `deviceId` absent = a probe saved before the two were separated, when its
+  // id WAS its device.id.
+  function createRecord({ id, kind, name, deviceId }, { register = true } = {}) {
     const rec = {
       id, kind, name,
+      deviceId: deviceId === undefined ? id : deviceId, // null = not bound to any device id
       device: null,
       state: "disconnected", // disconnected | connecting | connected | reconnecting (n/m) | gave up
       sample: null,
@@ -87,7 +98,8 @@ export function createProbeManager({
     return rec;
   }
 
-  const knownList = () => [...probes.values()].map(({ id, kind, name }) => ({ id, kind, name }));
+  const knownList = () => [...probes.values()].map(({ id, kind, name, deviceId }) => ({ id, kind, name, deviceId }));
+  const byDeviceId = (deviceId) => [...probes.values()].find((p) => p.deviceId === deviceId) ?? null;
   // Construction must not call handlers (a React caller creates this during
   // render, where setting state is not allowed), so seeding is silent.
   for (const k of known) createRecord(k);
@@ -189,16 +201,30 @@ export function createProbeManager({
     throw new Error("Not a supported probe.");
   }
 
-  async function adoptPickedDevice(device) {
+  /**
+   * Which record a freshly-picked device becomes. A device already known by
+   * its deviceId is that probe — unless the user picked it from a specific
+   * probe's Connect (`forRec`): then the pick IS that probe (the deviceId is
+   * only a guess that goes stale across sessions; the user's choice is not),
+   * except when the device is live right now as another probe — taking it
+   * over would silently cut that probe off.
+   */
+  function recordForPick(device, kind, forRec) {
+    const known = byDeviceId(device.id);
+    if (forRec && forRec.kind === kind && (!known || known === forRec || known.state !== "connected")) return forRec;
+    return known;
+  }
+
+  async function adoptPickedDevice(device, forRec = null) {
     const server = await device.gatt.connect();
     try {
       const kind = await identifyKind(server);
-      const existing = probes.get(device.id);
+      const existing = recordForPick(device, kind, forRec);
       // A brand-new probe is only REGISTERED (and persisted) once it has
       // actually connected and subscribed. Registering it first left a
       // "ghost" record behind whenever a first attempt failed part-way — a
       // never-connected duplicate the user then saw next to the real one.
-      const rec = existing ?? createRecord({ id: device.id, kind, name: defaultName(kind) }, { register: false });
+      const rec = existing ?? createRecord({ id: device.id, kind, name: defaultName(kind), deviceId: device.id }, { register: false });
       if (existing) {
         existing.state = "connecting";
         emit();
@@ -212,6 +238,14 @@ export function createProbeManager({
       if (!existing) {
         probes.set(rec.id, rec);
         persistKnown();
+      } else if (rec.deviceId !== device.id) {
+        // Rebinding: whichever record held this device id before was a stale
+        // duplicate of this probe from an earlier session. It keeps its name
+        // (the user can Forget it) but no longer claims the device.
+        const stale = byDeviceId(device.id);
+        if (stale) stale.deviceId = null;
+        rec.deviceId = device.id;
+        persistKnown();
       }
       markConnected(rec, device);
       return rec.id;
@@ -221,11 +255,11 @@ export function createProbeManager({
     }
   }
 
-  async function pick(kind) {
+  async function pick(kind, forRec = null) {
     const all = pickerOptions(drivers);
     const options = kind ? { filters: driverForKind(kind, drivers).filters, optionalServices: all.optionalServices } : all;
     const device = await getBluetooth().requestDevice(options);
-    return adoptPickedDevice(device);
+    return adoptPickedDevice(device, forRec);
   }
 
   // Add a new probe via the picker (one device per call, each needing its own
@@ -234,9 +268,10 @@ export function createProbeManager({
 
   /**
    * Tier 1: already connected → nothing to do. Tier 2: previously permitted →
-   * drive gatt.connect() on the matching device directly, no picker. Tier 3:
-   * picker. Returns the id actually connected — in tier 3 the user may pick a
-   * different device than the one asked for.
+   * drive gatt.connect() on the device with this probe's deviceId, no picker.
+   * Tier 3: picker — the device picked becomes this probe (see
+   * recordForPick). Returns the id actually connected, which is only ever a
+   * different probe's when the device picked is already live as that probe.
    */
   async function connect(probeId) {
     const rec = probes.get(probeId);
@@ -250,7 +285,7 @@ export function createProbeManager({
       const ble = getBluetooth();
       if (ble?.getDevices) {
         try {
-          const candidate = (await ble.getDevices()).find((d) => d.id === probeId);
+          const candidate = rec.deviceId ? (await ble.getDevices()).find((d) => d.id === rec.deviceId) : null;
           if (candidate) {
             for (let attempt = 1; attempt <= PAIRED_RETRY_ATTEMPTS; attempt++) {
               try {
@@ -267,7 +302,7 @@ export function createProbeManager({
           // fall through to the picker
         }
       }
-      return await pick(rec.kind);
+      return await pick(rec.kind, rec);
     } catch (err) {
       if (rec.state !== "connected") rec.state = "disconnected";
       emit();

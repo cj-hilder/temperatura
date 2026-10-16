@@ -108,7 +108,9 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   - `index.js` — the registry, and the union of picker filters / optional services.
   - `manager.js` — one connection per probe (three-tier connect, bounded reconnect, per-probe
     press baseline), `bluetooth`/`now`/`delay` injected so Node tests can drive it with a fake
-    GATT. Matches permitted devices to known probes by `device.id`.
+    GATT. A probe's identity is its own `id`; Chrome's `device.id` is kept as `deviceId`,
+    matched in tier 2 and rebound when Connect goes through the picker (it changes per session
+    on Android).
 - **`alarmPlayer.js`** — `decodeAudioData` on the keep-alive `AudioContext`, gain node with
   `linearRampToValueAtTime` on the first pass, buffer looping until silenced, fallback to the
   synthesised default tone on any decode failure.
