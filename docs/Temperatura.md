@@ -118,7 +118,7 @@ The main page contains
    5. Completion ticks: a small mark in the bottom-right corner of the tile for every time this step has been completed. These accumulate indefinitely, with one exception — see "Completion tallies" below.  
 7. Below the step tiles, two buttons:  
    1. **Clear all tallies** — zeroes every step's completion ticks for this recipe. Does not touch any running instance.  
-   2. **Wrap up this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK.
+   2. **Complete this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK.
 
 Tapping a tile causes the step page to appear, showing the step and the step controls
 
@@ -126,7 +126,7 @@ Tapping a tile causes the step page to appear, showing the step and the step con
 
 Each step's tick count is meant to answer "how many times has this gone through this step" at a glance — useful when several batches move through a recipe's steps in parallel. With the **Auto clear tallies** setting on (Settings — off by default), starting the recipe's first step clears every step's tally for the whole recipe, but only when doing so is unambiguous: no instance of any step in the recipe — including the first step itself — is currently in progress (running or paused). In the common case of working straight through a recipe and starting again once it's done, this means the slate is clear automatically, with no user action needed. With the setting off, tallies only ever clear when explicitly asked for — some users will prefer that simplicity, which is also why a fresh install starts with it off.
 
-This check can't be perfect. A batch set aside between two steps (nothing currently running for it, but not finished either) looks idle to this check, so starting a fresh batch at step 1 at that moment would clear its history along with everything else. A step that is legitimately, deliberately skipped every time (e.g. a branch in the recipe that's never taken) never accumulates a tally of its own, but that's expected — a step with no completions has nothing to reset. For the cases the automatic check gets wrong, **Clear all tallies** is the manual override, and **Wrap up this recipe** is the fix for "I forgot to complete things as I went" — completing every still-running instance is exactly what makes the recipe idle, so starting step 1 next clears the tallies as expected.
+This check can't be perfect. A batch set aside between two steps (nothing currently running for it, but not finished either) looks idle to this check, so starting a fresh batch at step 1 at that moment would clear its history along with everything else. A step that is legitimately, deliberately skipped every time (e.g. a branch in the recipe that's never taken) never accumulates a tally of its own, but that's expected — a step with no completions has nothing to reset. For the cases the automatic check gets wrong, **Clear all tallies** is the manual override, and **Complete this recipe** is the fix for "I forgot to complete things as I went" — completing every still-running instance is exactly what makes the recipe idle, so starting step 1 next clears the tallies as expected.
 
 ## C. Step page
 

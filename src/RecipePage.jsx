@@ -7,9 +7,9 @@ import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
 export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu, onOpenProbes }) {
-  const { app, refresh, openRecipes, wrapUpRecipe } = engine;
+  const { app, refresh, openRecipes, completeRecipe } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
-  const [wrapUpConfirm, setWrapUpConfirm] = useState(false);
+  const [completeConfirm, setCompleteConfirm] = useState(false);
   const closeEditor = async () => {
     await refresh();
     setEditing(false);
@@ -93,9 +93,9 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
     await app.clearCompletionTicks(recipe.id);
     await refresh();
   };
-  const handleWrapUp = async () => {
-    await wrapUpRecipe(recipe.id);
-    setWrapUpConfirm(false);
+  const handleCompleteRecipe = async () => {
+    await completeRecipe(recipe.id);
+    setCompleteConfirm(false);
   };
 
   return (
@@ -196,22 +196,22 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
         <button
           style={{ ...t.secondaryButton, ...(instances.length === 0 ? t.disabledButton : null) }}
           disabled={instances.length === 0}
-          onClick={() => setWrapUpConfirm(true)}
+          onClick={() => setCompleteConfirm(true)}
         >
-          Wrap up this recipe
+          Complete this recipe
         </button>
       </div>
 
-      {wrapUpConfirm && (
-        <div style={t.overlay} onClick={() => setWrapUpConfirm(false)}>
+      {completeConfirm && (
+        <div style={t.overlay} onClick={() => setCompleteConfirm(false)}>
           <div style={{ ...t.overlayCard, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Wrap up this recipe?</h3>
+            <h3 style={{ marginTop: 0 }}>Complete this recipe?</h3>
             <p style={{ fontSize: 13.5, color: t.colors.textMuted }}>
               This will complete {instances.length} running step{instances.length === 1 ? "" : "s"}.
             </p>
             <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-              <button style={{ ...t.secondaryButton, flex: 1 }} onClick={() => setWrapUpConfirm(false)}>Cancel</button>
-              <button style={{ ...t.dangerButton, flex: 1 }} onClick={handleWrapUp}>OK</button>
+              <button style={{ ...t.secondaryButton, flex: 1 }} onClick={() => setCompleteConfirm(false)}>Cancel</button>
+              <button style={{ ...t.dangerButton, flex: 1 }} onClick={handleCompleteRecipe}>OK</button>
             </div>
           </div>
         </div>
