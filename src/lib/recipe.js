@@ -88,11 +88,11 @@ export function validateRecipe(recipe) {
   const errors = [];
   if (!recipe.name || typeof recipe.name !== "string") errors.push("Recipe name is required.");
   // A blank quantity is allowed (e.g. "Salt — to taste"), but a non-blank one
-  // must be a decimal or a simple fraction — the ingredients multiplier can
+  // must be a decimal, a fraction or a mixed number — the ingredients multiplier can
   // only scale a quantity it can parse.
   for (const ing of recipe.ingredients ?? []) {
     if (!isValidQuantityString(ing.quantity)) {
-      errors.push(`Ingredient "${ing.name}": quantity must be a number (e.g. 0.5) or a simple fraction (e.g. 1/2).`);
+      errors.push(`Ingredient "${ing.name}": quantity must be a number (e.g. 0.5), a fraction (e.g. 1/2) or a mixed number (e.g. 1 1/2).`);
     }
   }
   for (const step of recipe.steps) {

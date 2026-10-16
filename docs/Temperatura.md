@@ -43,14 +43,15 @@ The Android Bluetooth stack limits how many devices can be connected at once, an
 
 ## Ingredients multiplier
 
-An ingredient's quantity is entered as either a plain decimal (e.g. `0.5`) or a simple fraction (e.g. `1/2`) — both are accepted. A blank quantity is also allowed (e.g. an ingredient like "Salt — to taste" that has none); anything else is rejected at save time with a message explaining why.
+An ingredient's quantity is entered as a plain decimal (e.g. `0.5`), a simple fraction (e.g. `1/2`) or a mixed number (e.g. `1 1/2`, a whole number and a fraction separated by a space) — all are accepted. A blank quantity is also allowed (e.g. an ingredient like "Salt — to taste" that has none); anything else is rejected at save time with a message explaining why.
 
 The Recipe page's ingredients panel has a transient multiplier, defaulting to 1 (no scaling). It is per-recipe — each recipe remembers its own last-used multiplier independently, so scaling one recipe never affects another that happens to be open at the same time — and persists across closing and reopening that recipe, but it is stored separately from the recipe's own data (not part of its JSON, and not included in that recipe's JSON export/import).
 
 Scaling a quantity by the multiplier follows the format the quantity was originally entered in:
 
 * A **decimal** quantity always displays its scaled result as a decimal (e.g. `0.5` cup ×0.25 = `0.125` cup), however many decimal places that takes.
-* A **fraction** quantity displays its scaled result as a fraction when that result, expressed as an exact fraction and reduced to lowest terms, has a denominator in the set **{2, 3, 4, 8, 16, 32, 64}** — the standard kitchen fraction denominators. Otherwise it falls back to decimal. E.g. `1/2` cup ×0.25 = `1/8` cup (denominator 8, stays a fraction), but `1/2` cup ×0.24 = `0.12` cup (reduces to 3/25, denominator 25 is not in the set, falls back to decimal).
+* A **fraction** or **mixed-number** quantity displays its scaled result as a fraction, written as a mixed number when it is more than 1 (`2 1/4`, never `9/4`; a whole result is just the whole number). The result is rounded two ways — to the nearest **1/64** (the spoons of a standard measuring set are 1, 1/2, 1/4, 1/8, 1/16, 1/32 and 1/64) and to the nearest **1/3** (1/3 cup is a standard measure) — and whichever rounding is closer to the unrounded amount is used, then simplified. A tie goes to the 64ths. Only if the result rounds to zero is it shown as a decimal instead, so a tiny amount is never hidden as "0". E.g. `1 1/2` ×2 = `3`, ×0.5 = `3/4`, ×0.3 = `29/64` (0.45: 29/64 is closer than 1/3), ×0.005 = `0.0075` (rounds to 0); `1/2` ×0.24 = `1/8`; `1/3` stays `1/3`; `1/2` ×0.67 = `1/3` (0.335: closer to 1/3 than to 21/64).
+* Some measuring sets also have 1/6 and 1/12 spoons, so these are opt-in: with the **Sixths and twelfths** setting on (Settings — off by default), the second rounding is to the nearest **1/12** instead of 1/3, so results can come out in sixths and twelfths as well as thirds (`1/6`, `2 1/12`). With it off, `1/6` shows as `11/64`. The setting applies to the Recipe page and the PDF export alike.
 
 The multiplier itself is always a plain decimal number, never a fraction.
 

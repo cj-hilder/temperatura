@@ -140,7 +140,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, navigate,
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <tbody>
               {recipe.ingredients.map((ing, i) => {
-                const scaled = formatQuantity(scaleQuantity(parseQuantity(ing.quantity), multiplier));
+                const scaled = formatQuantity(scaleQuantity(parseQuantity(ing.quantity), multiplier, { sixths: engine.sixthsAndTwelfths }));
                 return (
                   <tr key={i}>
                     <td style={{ padding: "4px 0" }}>{ing.name}</td>

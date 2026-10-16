@@ -42,8 +42,9 @@ function stepSummaryLine(step) {
 // app.js's getIngredientsMultiplier) — a share/print copy showing different
 // quantities than the screen the user was just looking at would be more
 // confusing than helpful. Defaults to 1 (unscaled) so existing callers/tests
-// don't need to know about the multiplier at all.
-export function buildRecipePrintHtml(recipe, multiplier = 1) {
+// don't need to know about the multiplier at all. `sixths` is the "Sixths and
+// twelfths" setting, for the same reason.
+export function buildRecipePrintHtml(recipe, multiplier = 1, { sixths = false } = {}) {
   const title = escapeHtml(recipe.name || "Recipe");
 
   const notesHtml = recipe.notes.length
@@ -53,7 +54,7 @@ export function buildRecipePrintHtml(recipe, multiplier = 1) {
   const ingredientsHtml = recipe.ingredients.length
     ? `<table>${recipe.ingredients
         .map((ing) => {
-          const scaled = formatQuantity(scaleQuantity(parseQuantity(ing.quantity), multiplier)) || ing.quantity;
+          const scaled = formatQuantity(scaleQuantity(parseQuantity(ing.quantity), multiplier, { sixths })) || ing.quantity;
           return `<tr><td>${escapeHtml(ing.name)}</td><td class="qty">${escapeHtml(scaled)} ${escapeHtml(ing.unit)}</td></tr>`;
         })
         .join("")}</table>`

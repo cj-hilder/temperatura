@@ -90,6 +90,9 @@ export function useAppEngine() {
     app.getKnownProbes().then((list) => manager.setKnown(list));
   }, [app, manager]);
   const [openRecipes, setOpenRecipes] = useState([]); // [{recipe, instances: [instance, ...]}]
+  // The "Sixths and twelfths" setting, re-read on every refresh so a page
+  // left open under the Settings overlay picks up a change without reloading.
+  const [sixthsAndTwelfths, setSixthsAndTwelfths] = useState(false);
   // Which instance's "Extend duration" dialog is open, if any — driven from
   // two places (the step page's own Extend button, and a notification's
   // Extend action arriving via the SW message listener below), so it lives
@@ -105,6 +108,7 @@ export function useAppEngine() {
       await Promise.all(recipes.map(async (r) => [r.id, await app.getCompletionTicks(r.id)]))
     );
     recipesRef.current = Object.fromEntries(recipes.map((r) => [r.id, r]));
+    setSixthsAndTwelfths(await app.getSixthsAndTwelfths());
     setOpenRecipes(
       recipes.map((recipe) => ({
         recipe,
@@ -590,6 +594,7 @@ export function useAppEngine() {
     forgetProbe: forgetProbeById,
     assignProbeToInstance,
     openRecipes,
+    sixthsAndTwelfths,
     silenceAlarm,
     dismissAlarm,
     resolveEarliestGlobal,

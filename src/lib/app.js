@@ -37,6 +37,9 @@ const COMPLETION_TICKS_PREFIX = "completionTicks:";
 // who never asked for it — this is an opt-in convenience, not a default
 // behavior the app imposes.
 const AUTO_CLEAR_TALLIES_SETTING_KEY = "autoClearTallies";
+// Off by default: only some measuring-spoon sets have 1/6 and 1/12 (see
+// quantity.js).
+const SIXTHS_SETTING_KEY = "sixthsAndTwelfths";
 
 /**
  * @param {object} [deps]
@@ -135,6 +138,8 @@ export function createAppController(deps = {}) {
   const clearCompletionTicks = (recipeId) => store.setSetting(COMPLETION_TICKS_PREFIX + recipeId, {});
   const getAutoClearTallies = () => store.getSetting(AUTO_CLEAR_TALLIES_SETTING_KEY, false);
   const setAutoClearTallies = (value) => store.setSetting(AUTO_CLEAR_TALLIES_SETTING_KEY, value);
+  const getSixthsAndTwelfths = () => store.getSetting(SIXTHS_SETTING_KEY, false);
+  const setSixthsAndTwelfths = (value) => store.setSetting(SIXTHS_SETTING_KEY, value);
 
   async function incrementCompletionTick(recipeId, stepId) {
     const ticks = await getCompletionTicks(recipeId);
@@ -337,6 +342,7 @@ export function createAppController(deps = {}) {
     getIngredientsMultiplier, setIngredientsMultiplier,
     getCompletionTicks, clearCompletionTicks,
     getAutoClearTallies, setAutoClearTallies,
+    getSixthsAndTwelfths, setSixthsAndTwelfths,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

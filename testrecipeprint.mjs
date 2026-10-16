@@ -62,6 +62,13 @@ console.log('\nbuildRecipePrintHtml — applies the ingredients multiplier, matc
   ok('fraction quantity scales fractionally (1/2 x0.25 = 1/8)', scaled.includes('1/8 cup'));
   ok('decimal quantity scales as a decimal (0.5 x0.25 = 0.125)', scaled.includes('0.125 cup'));
   ok('a blank quantity is left blank, not "undefined" or NaN', scaled.includes('to taste') && !scaled.includes('undefined') && !scaled.includes('NaN'));
+
+  // The "Sixths and twelfths" setting reaches the printed copy too, so it
+  // matches the screen.
+  const sixthsRecipe = { ...recipe, ingredients: [{ name: 'Oil', quantity: '1/6', unit: 'cup' }, { name: 'Milk', quantity: '1/3', unit: 'cup' }] };
+  ok('sixths round to 64ths by default (1/6 → 11/64)', buildRecipePrintHtml(sixthsRecipe).includes('11/64 cup'));
+  ok('...and are kept with the setting on', buildRecipePrintHtml(sixthsRecipe, 1, { sixths: true }).includes('1/6 cup'));
+  ok('thirds are kept either way', buildRecipePrintHtml(sixthsRecipe).includes('1/3 cup'));
 }
 
 console.log('\nbuildRecipePrintHtml — escapes user text so it cannot break the document:');

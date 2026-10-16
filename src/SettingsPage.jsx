@@ -16,15 +16,17 @@ export default function SettingsPage({ engine, onClose }) {
   const [themes, setThemes] = useState([]);
   const [dataLossThemeId, setDataLossThemeId] = useState(null);
   const [autoClearTallies, setAutoClearTalliesState] = useState(false);
+  const [sixths, setSixthsState] = useState(false);
   const [expanded, setExpanded] = useState(null); // theme id | NEW_THEME | null
 
   const load = async () => {
-    const [list, dataLossId, autoClear] = await Promise.all([
-      app.store.listAlarmThemes(), app.getDataLossAlarmTheme(), app.getAutoClearTallies(),
+    const [list, dataLossId, autoClear, sixthsOn] = await Promise.all([
+      app.store.listAlarmThemes(), app.getDataLossAlarmTheme(), app.getAutoClearTallies(), app.getSixthsAndTwelfths(),
     ]);
     setThemes(list);
     setDataLossThemeId(dataLossId);
     setAutoClearTalliesState(autoClear);
+    setSixthsState(sixthsOn);
   };
   useEffect(() => {
     load();
@@ -41,6 +43,11 @@ export default function SettingsPage({ engine, onClose }) {
   const changeAutoClearTallies = async (value) => {
     setAutoClearTalliesState(value);
     await app.setAutoClearTallies(value);
+  };
+
+  const changeSixths = async (value) => {
+    setSixthsState(value);
+    await app.setSixthsAndTwelfths(value);
   };
 
   return (
@@ -71,6 +78,16 @@ export default function SettingsPage({ engine, onClose }) {
             checked={autoClearTallies}
             onChange={(e) => changeAutoClearTallies(e.target.checked)}
           />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "13px 0", borderBottom: `1px solid ${t.colors.border}` }}>
+          <div>
+            <div style={{ ...t.label, margin: 0 }}>Sixths and twelfths</div>
+            <div style={{ fontSize: 12.5, color: t.colors.textMuted, marginTop: 2 }}>
+              Let scaled quantities use 1/6 and 1/12, for measuring sets that have them. Otherwise those round to the nearest 1/64.
+            </div>
+          </div>
+          <input type="checkbox" checked={sixths} onChange={(e) => changeSixths(e.target.checked)} />
         </div>
 
         <h3>Alarm themes</h3>

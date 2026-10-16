@@ -73,8 +73,9 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
       return say("That recipe no longer exists.", true);
     }
     const multiplier = await app.getIngredientsMultiplier(recipeId);
+    const sixths = await app.getSixthsAndTwelfths();
     win.document.open();
-    win.document.write(buildRecipePrintHtml(recipe, multiplier));
+    win.document.write(buildRecipePrintHtml(recipe, multiplier, { sixths }));
     win.document.close();
     win.onafterprint = () => win.close();
     win.focus();
