@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
+import { elapsedRunningMs } from "./lib/instances.js";
+import { formatDuration } from "./lib/format.js";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
@@ -113,7 +115,16 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
                     {instance.tag && <span style={{ color: t.colors.textMuted, fontWeight: 400 }}> — {instance.tag}</span>}
                   </div>
                   <div style={{ ...t.clamp(2), fontSize: 12.5, color: t.colors.textMuted }}>{step.description}</div>
-                  {progress && <StepProgressBar progress={progress} />}
+                  {progress ? (
+                    <StepProgressBar progress={progress} />
+                  ) : (
+                    // No duration, so no bar — but the clock is still the
+                    // most useful thing to see at a glance. Running time
+                    // only, the same figure the step page shows.
+                    <div style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 6 }}>
+                      {formatDuration(elapsedRunningMs(instance, Date.now()))} elapsed{instance.status === "paused" ? " — paused" : ""}
+                    </div>
+                  )}
                 </div>
               );
             })}

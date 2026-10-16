@@ -94,6 +94,7 @@ A collection of tiles, vertically stacked, one for each open recipe. Each tile c
   * If the step has a tag, the tag name  
   * Step description (restricted to two lines, with ellipsis if required)  
   * If the step has a duration, a progress bar. For an 'in temperature band' duration the bar also shows whether the time being accumulated is measured or assumed, and carries the estimate flag if it applies - see In-band accumulation.
+  * If the step has no duration, the elapsed time instead (running time, excluding pauses — the same figure the step page shows), marked "paused" while it is paused.
 
 Tapping a tile causes the recipe page to appear, showing the recipe
 
