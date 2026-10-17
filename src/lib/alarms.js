@@ -40,7 +40,7 @@ export const DEFAULT_SILENCE_AFTER_MS = 120_000;
 function freshAlarmState(def) {
   return def.kind === "temperature"
     ? { armed: true, sounding: false, missed: false, firedAt: null, lastSide: null, rearm: null, seenN: null }
-    : { firedCount: 0, sounding: false, missed: false, firedAt: null }; // "time" and "duration" share this shape.
+    : { firedCount: 0, unanswered: 0, sounding: false, missed: false, firedAt: null }; // "time" and "duration" share this shape.
 }
 
 // Fresh runtime state for a step's alarms — call at Start only. Restart goes
@@ -71,7 +71,7 @@ export function reArmOnRestart(alarmState, stepAlarmDefs) {
     // undefined fields.
     const prev = next[def.id] ?? freshAlarmState(def);
     if (def.kind !== "temperature") {
-      next[def.id] = { firedCount: 0, sounding: false, missed: false, firedAt: null };
+      next[def.id] = { firedCount: 0, unanswered: 0, sounding: false, missed: false, firedAt: null };
     } else if (def.oneShot) {
       // lastSide is kept: re-armed, but it still needs a real crossing from
       // wherever the reading is now, never an instant fire.
@@ -298,16 +298,29 @@ function evaluateTimeAlarm(def, prev, timeBasisMs, now, newlyFired) {
   // that the user doesn't want to miss the NEXT interval just because they
   // hadn't gotten around to acknowledging the last one. A one-shot alarm
   // (repeat: false, which the duration-reached alarm always is) can't
-  // refire regardless — canFireAgain below is false the instant firedCount
-  // leaves 0, independent of sounding/missed state.
-  const nextThresholdMs = def.atMs + firedCount * (def.repeat ? def.intervalMs : 0);
-  const canFireAgain = def.repeat || firedCount === 0;
+  // refire regardless — it is "due" once and only once, independent of
+  // sounding/missed state.
+  //
+  // `due` is how many occurrences have come round by now, not just whether
+  // the next one has. Several can be due at once — a repeating alarm added
+  // to a step that has already been running for hours, or an app reopened
+  // after a long kill — and they fire together as ONE alert. Advancing one
+  // occurrence per evaluation instead re-fired the alarm every tick until it
+  // caught up: an every-minute alarm added two hours in sounded and
+  // re-notified 120 times in two minutes.
+  if (timeBasisMs < def.atMs) return prev;
+  const due = def.repeat ? Math.floor((timeBasisMs - def.atMs) / def.intervalMs) + 1 : 1;
+  if (due <= firedCount) return prev;
 
-  if (canFireAgain && timeBasisMs >= nextThresholdMs) {
-    newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
-    return { firedCount: firedCount + 1, sounding: true, missed: false, firedAt: now };
-  }
-  return prev;
+  // How many occurrences this one alert now stands for: the ones just come
+  // due, plus — if the previous occurrence is still unanswered (sounding or
+  // missed) — however many that one already stood for. Answering it (one
+  // Silence or Dismiss) clears them all; the count starts again from the
+  // next occurrence. Shown as "every 1:00 for 120x" (stepDisplay.js).
+  const outstanding = prev.sounding || prev.missed;
+  const unanswered = (outstanding ? prev.unanswered ?? 1 : 0) + (due - firedCount);
+  newlyFired.push({ id: def.id, kind: def.kind, name: def.name, theme: def.theme });
+  return { firedCount: due, unanswered, sounding: true, missed: false, firedAt: now };
 }
 
 function evaluateDataLossAlarm(prev, claimed, hasTempInterest, msSinceLastPacket, now, newlyFired) {

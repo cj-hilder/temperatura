@@ -1,4 +1,4 @@
-import { describeStepAlarms, alarmDetail, stepTimers, computeStepProgress, progressBarStyle, provenanceLabel } from './src/stepDisplay.js';
+import { describeStepAlarms, alarmDetail, alarmNotifyBody, stepTimers, computeStepProgress, progressBarStyle, provenanceLabel } from './src/stepDisplay.js';
 import { startInstance, advanceInBand, startInBandManually } from './src/lib/instances.js';
 import { createBlankStep, buildStepAlarmDefs } from './src/lib/recipe.js';
 
@@ -17,6 +17,12 @@ console.log('\nalarmDetail — the alarm overlay\'s (kind value) qualifier:');
   ok('heating temperature alarm', alarmDetail({ kind: 'temperature', direction: 'heating', thresholdC: 70 }, 1) === 'heating 70 deg');
   ok('cooling temperature alarm', alarmDetail({ kind: 'temperature', direction: 'cooling', thresholdC: 40 }, 1) === 'cooling 40 deg');
   ok('no def (e.g. the data-loss alarm) renders nothing', alarmDetail(null, 1) === null);
+  const stir = { id: 'stir', kind: 'time', name: 'Stir', atMs: 60_000, repeat: true, intervalMs: 60_000 };
+  ok('a repeating alarm standing for one occurrence reads as before', alarmDetail(stir, 3, 1) === '#3 time 00:01:00');
+  ok('standing for several unanswered: "every 1:00 for 120x"', alarmDetail(stir, 120, 120) === 'every 1:00 for 120x');
+  const step = { ...createBlankStep('s1'), timeAlarms: [{ ...stir }] };
+  ok('the notification body carries the same count', alarmNotifyBody(step, 'stir', stir, { firedCount: 120, unanswered: 120 }) === 'Stir (every 1:00 for 120x)');
+  ok('…and is just the name for a single occurrence', alarmNotifyBody(step, 'stir', stir, { firedCount: 3, unanswered: 1 }) === 'Stir');
 }
 
 console.log('\ndescribeStepAlarms — canonical order: time asc, duration, heating asc, cooling desc, band:');

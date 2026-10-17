@@ -28,7 +28,7 @@ function outstandingAlarms(openRecipes) {
           recipeName: recipe.name,
           stepName: step.name,
           alarmName: alarmName(step, alarmId),
-          detail: alarmDetail(def, state.firedCount),
+          detail: alarmDetail(def, state.firedCount, state.unanswered),
           tag: instance.tag,
           missed: state.missed,
           firedAt: state.firedAt ?? 0,

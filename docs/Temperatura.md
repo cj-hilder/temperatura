@@ -316,6 +316,8 @@ A button press can only silence one alarm. If multiple alarms are firing the but
 
 For a repeating alarm, silencing kills the one occurrence that is sounding, it does not cancel the repeats.
 
+A repeating alarm never sounds in a burst. When several of its occurrences are due at once — it was added to a step that has already been running for a while (it counts from its first occurrence, as any alarm added for a time already passed fires), or the app was closed for a long spell — they fire together as **one** alert. And when an occurrence comes due while the previous one is still unanswered (sounding or missed), it folds into that same alert rather than standing alone. The alert keeps count of how many occurrences it stands for; one Silence or Dismiss answers them all, and the count starts again from the next occurrence. E.g. an every-minute "Stir" alarm added two hours into a step sounds once, as "Stir (every 1:00 for 120x)". A single, non-repeating time alarm added for a time already passed simply fires straight away, once.
+
 #### Missed status
 
 An alarm left sounding for its theme's "Silence after" duration with nobody acknowledging it goes to **missed** status: audio and vibration stop, but the alarm stays outstanding rather than quietly going back to idle. This applies uniformly to all three alarm kinds (time, temperature, and the implicit data-loss alarm), and the countdown to missed runs on real wall-clock time regardless of whether the step is paused.
@@ -333,7 +335,7 @@ Restart clears missed status for every alarm on the step, including temperature 
 
 Every currently sounding or missed alarm, across every open recipe and every running instance, is shown in one overlay that sits on top of everything else in the app — including an open recipe or step editor. Each row shows the recipe name, step name, alarm name, and the instance's tag if it has one. There is no way to close the overlay directly: it disappears only once every row has been resolved (silenced if sounding, dismissed if missed), one at a time or in any order.
 
-The alarm name carries a parenthetical qualifier naming its kind and value, so a row is legible without opening the step: a time alarm (including the duration-reached alarm) reads `(time HH:MM:SS)`, a heating temperature alarm `(heating N deg)`, a cooling one `(cooling N deg)`. A repeating time alarm additionally carries which occurrence this is — `(#3 time HH:MM:SS)` for its third firing — numbered from its first occurrence (`#1`), not just from the second onward.
+The alarm name carries a parenthetical qualifier naming its kind and value, so a row is legible without opening the step: a time alarm (including the duration-reached alarm) reads `(time HH:MM:SS)`, a heating temperature alarm `(heating N deg)`, a cooling one `(cooling N deg)`. A repeating time alarm additionally carries which occurrence this is — `(#3 time HH:MM:SS)` for its third firing — numbered from its first occurrence (`#1`), not just from the second onward. When the alert stands for several unanswered occurrences (see above) it reads `(every 1:00 for 120x)` instead, and so does its notification.
 
 A row for the duration-reached alarm also carries an **Extend** button beside Silence/Dismiss — the same rule the step page's own Extend button already follows (available whenever the step has a duration). Extending a missed duration alarm from the overlay uses the same "from now, not from the stale target" math described above.
 

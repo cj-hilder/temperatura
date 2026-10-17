@@ -18,6 +18,15 @@ export function alarmName(step, alarmId) {
   );
 }
 
+// A notification's body: the alarm's name, plus the unanswered count when one
+// alert stands for several occurrences of a repeating alarm — the same
+// "(every 1:00 for 120x)" the overlay shows, so the count isn't lost on the
+// lock screen.
+export function alarmNotifyBody(step, alarmId, def, state) {
+  const name = alarmName(step, alarmId);
+  return def?.repeat && (state?.unanswered ?? 1) > 1 ? `${name} (${alarmDetail(def, state.firedCount, state.unanswered)})` : name;
+}
+
 // One human-readable line per configured alarm — every time alarm, every
 // temperature alarm, and the duration-reached alarm if enabled — so the step
 // page can list them all without entering edit mode. Ordered per spec: time
@@ -56,9 +65,14 @@ export function describeStepAlarms(step) {
 // this alarm's current occurrence number, from its alarmState — every
 // occurrence of a repeating alarm is numbered, not just the second onward,
 // so there's no special first-time case to reason about.
-export function alarmDetail(def, firedCount) {
+// `unanswered`: how many occurrences of a repeating alarm this one alert
+// stands for (alarms.js) — several come due together in a catch-up, and more
+// fold in while it goes unanswered. Only then does the qualifier change, to
+// "every 1:00 for 120x"; one occurrence reads as before.
+export function alarmDetail(def, firedCount, unanswered = 1) {
   if (!def) return null;
   if (def.kind === "time" || def.kind === "duration") {
+    if (def.repeat && unanswered > 1) return `every ${formatDuration(def.intervalMs)} for ${unanswered}x`;
     const label = `time ${formatHMS(def.atMs)}`;
     return def.repeat ? `#${firedCount} ${label}` : label;
   }

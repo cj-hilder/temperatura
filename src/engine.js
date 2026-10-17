@@ -9,7 +9,7 @@ import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
 import { earliestOutstandingAcrossInstances, themeIdForAlarmId, DATA_LOSS_ALARM_ID } from "./lib/alarms.js";
-import { alarmName } from "./stepDisplay.js";
+import { alarmName, alarmNotifyBody } from "./stepDisplay.js";
 
 // Promotes AlarmDemo.jsx's wiring (keep-alive, thermometer, tick loop,
 // alarmPlayer, notify) from one hardcoded fake instance to every real running
@@ -550,7 +550,7 @@ export function useAppEngine() {
               allSounding.push({
                 id: compositeTag(instance.id, alarmId),
                 title: recipe.name,
-                body: alarmName(step, alarmId),
+                body: alarmNotifyBody(step, alarmId, stepAlarmDefs.find((d) => d.id === alarmId), result.instance.alarmState[alarmId]),
                 vibrate: vibrate ? VIBRATE_PATTERN : [],
                 // Only a duration-reached notification offers Extend — the
                 // one alarm kind "add more time" is actually meaningful for.

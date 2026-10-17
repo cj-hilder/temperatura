@@ -692,5 +692,48 @@ console.log('\nreArmOnRestart clears missed for every alarm kind, including temp
     state.cool1.armed === true && state.cool1.sounding === false && state.cool1.missed === false && state.cool1.lastSide === null);
 }
 
+console.log('\nRepeating time alarm — occurrences due together fire as ONE alert, with a count:');
+{
+  const MIN = 60_000;
+  const def = { id: 'stir', kind: 'time', name: 'Stir', atMs: MIN, repeat: true, intervalMs: MIN, theme: null, silenceAfterMs: 30_000 };
+  // Added to a step that has already been running for 2 hours: no state entry yet.
+  let state = { [DATA_LOSS_ALARM_ID]: initAlarmState([])[DATA_LOSS_ALARM_ID] };
+  let fires = 0;
+  let now = 1_000_000;
+  const tick = (basisMs) => {
+    now += 1000;
+    const r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: basisMs, now }));
+    state = r.alarmState;
+    fires += r.newlyFired.filter((f) => f.id === 'stir').length;
+    return r;
+  };
+  tick(120 * MIN);
+  ok('added two hours in: fires once straight away (from its first occurrence, caught up)', fires === 1 && state.stir.sounding);
+  ok('…standing for all 120 occurrences due by now', state.stir.unanswered === 120 && state.stir.firedCount === 120);
+  for (let k = 1; k <= 30; k++) tick(120 * MIN + k * 1000);
+  ok('no burst: 30 further ticks inside the same minute fire nothing more', fires === 1);
+
+  tick(121 * MIN); // the next occurrence, still unanswered (now missed)
+  ok('the next occurrence while still unanswered folds in: one alert, 121x', fires === 2 && state.stir.unanswered === 121 && state.stir.sounding && !state.stir.missed);
+
+  ({ alarmState: state } = silenceById(state, 'stir'));
+  tick(122 * MIN);
+  ok('once answered, the count starts again from the next occurrence', state.stir.unanswered === 1 && state.stir.firedCount === 122);
+
+  tick(123 * MIN); // 122's alert is still sounding, unanswered
+  ok('…and grows again while that one goes unanswered', state.stir.unanswered === 2);
+}
+
+console.log('\nOne-off time alarm whose time has already passed when added: fires straight away, once:');
+{
+  const def = { id: 'once5', kind: 'time', name: 'Check', atMs: 5 * 60_000, repeat: false, intervalMs: null, theme: null };
+  let state = { [DATA_LOSS_ALARM_ID]: initAlarmState([])[DATA_LOSS_ALARM_ID] };
+  let r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 2 * 3_600_000, now: 1000 }));
+  ok('fires immediately', r.newlyFired.some((f) => f.id === 'once5'));
+  state = r.alarmState;
+  r = evaluateAlarms(baseArgs({ stepAlarmDefs: [def], alarmState: state, timeBasisMs: 2 * 3_600_000 + 1000, now: 2000 }));
+  ok('and only once', r.newlyFired.length === 0 && state.once5.unanswered === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
