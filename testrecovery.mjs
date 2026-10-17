@@ -525,5 +525,24 @@ console.log('\n"Start in-band timer" end to end: no probe at all, the in-band cl
   ok('the duration alarm fires 10 s after the timer was started by hand', result.newlyFired.some((f) => f.id === alarmId));
 }
 
+console.log('\nTemperature graphs: survive a restart of the app, cleared when the run is finished:');
+{
+  const backend = new MemoryBackend();
+  const mkApp = () => createAppController({ backend, now: () => 0 });
+  const app = mkApp();
+  const recipe = await app.createRecipe({ name: 'G', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  await app.startInstance({ id: 'g1', recipeId: recipe.id, stepId: 's', stepAlarmDefs: [] });
+  await app.startInstance({ id: 'g2', recipeId: recipe.id, stepId: 's', stepAlarmDefs: [] });
+  const history = { startedAt: 0, lastN: 3, points: [{ t: 0, lo: 20, hi: 21 }] };
+  await app.saveGraph('g1', history);
+  await app.saveGraph('g2', history);
+  ok('a saved graph is there after the app restarts', JSON.stringify(await mkApp().getGraph('g1')) === JSON.stringify(history));
+  await app.completeInstance('g1');
+  ok('completing the step deletes its graph', (await app.getGraph('g1')) === null);
+  ok('…but not another running step\'s', (await app.getGraph('g2')) !== null);
+  await app.closeRecipe(recipe.id);
+  ok('closing the recipe deletes the graphs of the steps it completes', (await app.getGraph('g2')) === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -3,6 +3,7 @@ import StepEditor from "./StepEditor.jsx";
 import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
 import StepTimers from "./StepTimers.jsx";
+import TemperatureGraph from "./TemperatureGraph.jsx";
 import { buildStepAlarmDefs, durationKindLabel } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms, stepTimers, liveReading } from "./stepDisplay.js";
 import { canStartInBandManually } from "./lib/instances.js";
@@ -233,6 +234,20 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
             </div>
           </div>
         )}
+
+        {instance && (() => {
+          const now = Date.now();
+          const live = liveReading(instance, engine, now);
+          return (
+            <TemperatureGraph
+              history={engine.graphFor(instance.id)}
+              startedAt={instance.startedAt}
+              step={step}
+              liveTempC={live.measured ? live.latestSample.tempC : null}
+              now={now}
+            />
+          );
+        })()}
 
         {alarmLines.length > 0 && (
           <div style={{ margin: "12px 0" }}>

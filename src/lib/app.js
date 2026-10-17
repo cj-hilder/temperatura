@@ -37,6 +37,11 @@ const COMPLETION_TICKS_PREFIX = "completionTicks:";
 // who never asked for it — this is an opt-in convenience, not a default
 // behavior the app imposes.
 const AUTO_CLEAR_TALLIES_SETTING_KEY = "autoClearTallies";
+// One temperature graph per running instance (lib/graphHistory.js), in the
+// settings store keyed by instance id — no schema change needed, and it
+// keeps the graph's up-to-2,000 points out of the instance record, which is
+// rewritten every tick.
+const GRAPH_PREFIX = "graph:";
 // Off by default: only some measuring-spoon sets have 1/6 and 1/12 (see
 // quantity.js).
 const SIXTHS_SETTING_KEY = "sixthsAndTwelfths";
@@ -64,6 +69,7 @@ export function createAppController(deps = {}) {
     const instances = await store.listInstancesForRecipe(id);
     await store.deleteRecipe(id);
     await releaseInstances(instances.map((i) => i.id));
+    await clearGraphs(instances.map((i) => i.id));
   };
   const openRecipe = (id) => store.openRecipe(id);
   const listOpenRecipeIds = () => store.listOpenRecipeIds();
@@ -74,8 +80,19 @@ export function createAppController(deps = {}) {
     await store.closeRecipe(id, now());
     await clearCompletionTicks(id);
     // Closing completes its instances wholesale, bypassing the per-instance
-    // Complete path, so their probes have to be freed here.
+    // Complete path, so their probes (and graphs) have to be freed here.
     await releaseInstances(instances.map((i) => i.id));
+    await clearGraphs(instances.map((i) => i.id));
+  };
+
+  // ---- Temperature graphs ----
+
+  const getGraph = (instanceId) => store.getSetting(GRAPH_PREFIX + instanceId, null);
+  const saveGraph = (instanceId, history) => store.setSetting(GRAPH_PREFIX + instanceId, history);
+  // A graph belongs to a run in progress; once the instance is finished
+  // there's nothing to draw it on.
+  const clearGraphs = async (instanceIds) => {
+    for (const id of instanceIds) await store.deleteSetting(GRAPH_PREFIX + id);
   };
 
   // ---- Probes: which are known, and which instance uses which ----
@@ -193,6 +210,7 @@ export function createAppController(deps = {}) {
     const updated = completeInstance(instance, now());
     await store.updateInstance(updated);
     await releaseInstances([instanceId]);
+    await clearGraphs([instanceId]);
     await incrementCompletionTick(instance.recipeId, instance.stepId);
     return updated;
   }
@@ -343,6 +361,7 @@ export function createAppController(deps = {}) {
     getCompletionTicks, clearCompletionTicks,
     getAutoClearTallies, setAutoClearTallies,
     getSixthsAndTwelfths, setSixthsAndTwelfths,
+    getGraph, saveGraph, clearGraphs,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

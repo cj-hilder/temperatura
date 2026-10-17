@@ -4,6 +4,7 @@ import { IndexedDBBackend, DEFAULT_THEME_ID } from "./lib/storage.js";
 import { useKeepAlive } from "./lib/useKeepAlive.js";
 import { createProbeManager } from "./lib/probes/manager.js";
 import { freeProbeIds } from "./lib/assignment.js";
+import { recordTick } from "./lib/graphHistory.js";
 import { playAlarm, stopAlarm, decodeSound, resolvePlaybackParams } from "./lib/alarmPlayer.js";
 import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
@@ -60,6 +61,10 @@ export function useAppEngine() {
   const soundingTagsRef = useRef(new Set()); // composite tags with an active alarmPlayer voice
   const missedNotifiedRef = useRef(new Set()); // composite tags already sent a one-time "now missed" notification
   const recipesRef = useRef({}); // recipeId -> recipe, for the tick loop's step lookups
+  // instanceId -> temperature graph history (lib/graphHistory.js). Held here
+  // and drawn from here so the live end moves every tick; saved to storage
+  // only when a new 10 s point begins, so an app kill loses at most that.
+  const graphsRef = useRef(new Map());
   // Updated every render so the (created-once) probe manager's press handler
   // always calls the current resolveEarliestGlobal rather than a stale closure.
   const pressHandlerRef = useRef(() => {});
@@ -447,6 +452,7 @@ export function useAppEngine() {
         const active = allInstances.filter((i) => i.status === "running" || i.status === "paused");
         if (active.length === 0) {
           routerRef.current?.tick([]);
+          graphsRef.current.clear();
           return;
         }
 
@@ -501,6 +507,23 @@ export function useAppEngine() {
               dataLossSilenceAfterMs,
               claimed: !!probe,
             });
+
+            // The graph: every tick, measured or not — a stretch with no
+            // data has to be recorded too, as a break in the line.
+            const graphBefore = graphsRef.current.has(instance.id) ? graphsRef.current.get(instance.id) : await app.getGraph(instance.id);
+            const graphAfter = recordTick(graphBefore, {
+              startedAt: instance.startedAt,
+              measured: result.provenance.startsWith("measured"),
+              tempC,
+              readings: probe?.readings ?? [],
+              now: Date.now(),
+            });
+            graphsRef.current.set(instance.id, graphAfter);
+            const lastBefore = graphBefore?.points.at(-1);
+            const lastAfter = graphAfter.points.at(-1);
+            if (graphAfter.startedAt !== graphBefore?.startedAt || graphAfter.points.length !== graphBefore?.points.length || lastAfter?.t !== lastBefore?.t) {
+              await app.saveGraph(instance.id, graphAfter);
+            }
 
             const stillSounding = new Set(result.sounding.map((id) => compositeTag(instance.id, id)));
             // Every currently-sounding alarm, not just this tick's
@@ -563,6 +586,10 @@ export function useAppEngine() {
           }
         }
         routerRef.current?.tick(allSounding);
+        // Graphs of instances that are no longer running are done with (the
+        // controller deletes their stored copy when they finish).
+        const activeIds = new Set(active.map((i) => i.id));
+        for (const id of [...graphsRef.current.keys()]) if (!activeIds.has(id)) graphsRef.current.delete(id);
       } catch (err) {
         console.error("tick loop failed", err);
       } finally {
@@ -608,5 +635,6 @@ export function useAppEngine() {
     // For SettingsPage's pick-time decode/duration check — must reuse this
     // exact context, not a fresh one, per useKeepAlive.js's own rationale.
     getAudioContext: () => keepAliveRef.current.audioRef.current?.ctx,
+    graphFor: (instanceId) => graphsRef.current.get(instanceId) ?? null,
   };
 }

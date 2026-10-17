@@ -279,6 +279,7 @@ export class Store {
     return v === undefined ? fallback : v;
   }
   setSetting(key, value) { return this.b.putKV(STORES.SETTINGS, key, value); }
+  deleteSetting(key) { return this.b.delete(STORES.SETTINGS, key); }
 
   // ---- Backup / restore (all data) -------------------------------------------
 

@@ -74,6 +74,10 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   fire, which re-arm, and which are silenced. Owns the 0.1 °C-rounded threshold sides, the every-time
   re-arm hysteresis (5 readings or 5 s with no reading over the threshold, every reading checked), the one-shot/repeating logic, and the earliest-first silence queue. **Highest-value test target
   in the project.**
+- **`graphHistory.js`** — a running instance's temperature–time history for the step page
+  graph: 10 s buckets holding each bucket's lowest and highest reading, gap markers for no data,
+  a ~2,000-point cap that merges the oldest half two-into-one keeping lo/hi, and the window /
+  range calculation for drawing. Stored per instance in the settings store (`graph:<id>`).
 - **`provenance.js`** *(or fold into `instances.js`)* — measured vs assumed, and the four
   progress-bar states. This is derived per tick from three inputs: does this instance use a
   probe, is that probe's data fresh, is the reading valid. Only the latched estimate flag is
@@ -200,7 +204,9 @@ Write in this order:
 6. `testrecovery.mjs` — kill and restore mid-instance. Model it on RTW's
    `recording-recovery-spec.md` and `testrecovery.mjs`.
 7. `testformat.mjs` — cheap, catches a lot.
-8. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
+8. `testgraph.mjs` — `graphHistory.js`: bucketing, between-tick spikes kept, gaps, Restart,
+   probe change, the cap (a month stays within it, spikes survive merging), the view range.
+9. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
    (see §6), never cache a failure.
 
 ---
