@@ -160,7 +160,7 @@ export default function App() {
     screen.view === "recipe" ? (
       <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} initialCompleteConfirm={screen.confirmComplete} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : screen.view === "step" ? (
-      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
+      <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} initialInstanceId={screen.instanceId} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : (
       <HomePage engine={engine} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     );

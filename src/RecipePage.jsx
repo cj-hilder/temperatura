@@ -3,6 +3,7 @@ import RecipeEditor from "./RecipeEditor.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { formatDuration } from "./lib/format.js";
 import { durationKindLabel } from "./lib/recipe.js";
+import InstanceRow from "./InstanceRow.jsx";
 import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -177,8 +178,17 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
                 ? `${durationKindLabel(step.duration.kind)} — ${formatDuration(step.duration.ms)}`
                 : "No set duration"}
               {step.tempBand ? ` · ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
-              {running.length > 0 ? ` · ${running.length} in progress` : ""}
             </div>
+            {running.map((instance) => (
+              <InstanceRow
+                key={instance.id}
+                engine={engine}
+                step={step}
+                instance={instance}
+                showStep={false}
+                onOpen={() => navigate({ view: "step", recipeId: recipe.id, stepId: step.id, instanceId: instance.id })}
+              />
+            ))}
             {ticks > 0 && (
               <div
                 title={`Completed ${ticks} time${ticks === 1 ? "" : "s"}`}

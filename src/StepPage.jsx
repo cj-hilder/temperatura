@@ -11,11 +11,19 @@ import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMenu, onOpenProbes }) {
+export default function StepPage({ engine, recipeId, stepId, initialInstanceId, navigate, onOpenMenu, onOpenProbes }) {
   const { app, refresh, openRecipes, completeInstance, requestExtend } = engine;
   const [editing, setEditing] = useState(false);
   const [choosingProbe, setChoosingProbe] = useState(false);
-  const [index, setIndex] = useState(0);
+  // Which running copy is shown, when there are several. Opened from a
+  // particular copy's row (Home / Recipe page) it starts on that copy; the
+  // ← → arrows take over from there.
+  const [index, setIndexRaw] = useState(0);
+  const [preferredId, setPreferredId] = useState(initialInstanceId ?? null);
+  const setIndex = (i) => {
+    setPreferredId(null);
+    setIndexRaw(i);
+  };
   const [tagDraft, setTagDraft] = useState(null);
   const closeEditor = async () => {
     await refresh();
@@ -76,7 +84,8 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   }
 
   const instances = entry.instances.filter((i) => i.stepId === stepId && i.status !== "completed");
-  const clampedIndex = Math.min(index, Math.max(0, instances.length - 1));
+  const preferredIndex = preferredId ? instances.findIndex((i) => i.id === preferredId) : -1;
+  const clampedIndex = preferredIndex >= 0 ? preferredIndex : Math.min(index, Math.max(0, instances.length - 1));
   const instance = instances[clampedIndex];
   const stepAlarmDefs = buildStepAlarmDefs(step);
 

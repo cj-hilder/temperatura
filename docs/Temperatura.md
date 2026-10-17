@@ -121,7 +121,7 @@ The main page contains
    1. Step name  
    2. Step description  
    3. Duration and temperature band  
-   4. An indication of whether the step is currently in progress and how many instances  
+   4. For each instance of the step currently in progress, a row the same as the home page's sub-tile — its tag if it has one, the progress bar if the step has a duration, and the step timers (marked "paused" while paused) — minus the step name and description, which are already the tile's own heading. Tapping a row opens the step page on that instance (as tapping a home page sub-tile does).  
    5. Completion ticks: a small mark in the bottom-right corner of the tile for every time this step has been completed. These accumulate indefinitely, with one exception — see "Completion tallies" below.  
 7. Below the step tiles, two buttons:  
    1. **Clear all tallies** — zeroes every step's completion ticks for this recipe. Does not touch any running instance.  

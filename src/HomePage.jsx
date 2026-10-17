@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
-import { computeStepProgress, progressBarStyle, provenanceLabel, stepTimers } from "./stepDisplay.js";
-import StepTimers from "./StepTimers.jsx";
+import InstanceRow from "./InstanceRow.jsx";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
@@ -102,29 +101,14 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
             {running.map((instance) => {
               const step = recipe.steps.find((s) => s.id === instance.stepId);
               if (!step) return null;
-              const progress = computeStepProgress(instance, step, engine, Date.now());
               return (
-                <div
+                <InstanceRow
                   key={instance.id}
-                  style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${t.colors.border}`, cursor: "pointer" }}
-                  onClick={() => navigate({ view: "step", recipeId: recipe.id, stepId: step.id })}
-                >
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    {step.name}
-                    {instance.tag && <span style={{ color: t.colors.textMuted, fontWeight: 400 }}> — {instance.tag}</span>}
-                  </div>
-                  <div style={{ ...t.clamp(2), fontSize: 12.5, color: t.colors.textMuted }}>{step.description}</div>
-                  {progress ? (
-                    <StepProgressBar progress={progress} timers={stepTimers(instance, step, Date.now())} />
-                  ) : (
-                    // No duration, so no bar — but the timers are still the
-                    // most useful thing to see at a glance (the same ones the
-                    // step page shows).
-                    <StepTimers timers={stepTimers(instance, step, Date.now())} style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 6 }}>
-                      {instance.status === "paused" ? " — paused" : ""}
-                    </StepTimers>
-                  )}
-                </div>
+                  engine={engine}
+                  step={step}
+                  instance={instance}
+                  onOpen={() => navigate({ view: "step", recipeId: recipe.id, stepId: step.id, instanceId: instance.id })}
+                />
               );
             })}
           </div>
@@ -151,21 +135,6 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function StepProgressBar({ progress, timers }) {
-  const { advancing, fillStyle, trackStyle } = progressBarStyle(progress.provenance, t.colors);
-  const label = provenanceLabel(progress.provenance);
-  return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ height: 8, borderRadius: 4, background: trackStyle, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${progress.fraction * 100}%`, background: fillStyle }} />
-      </div>
-      <StepTimers timers={timers} style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 }}>
-        {!advancing && label ? ` — ${label}` : ""}
-      </StepTimers>
     </div>
   );
 }
