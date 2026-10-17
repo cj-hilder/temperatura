@@ -20,6 +20,14 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
   useBackDismiss(completeConfirm, () => setCompleteConfirm(false));
   const [journalOpen, setJournalOpen] = useState(false);
   const [recordedAt, setRecordedAt] = useState(null); // "Recorded" confirmation
+  // "Record in journal" asks for an optional note first; back cancels it.
+  const [recordNote, setRecordNote] = useState(null); // draft note while the dialog is open, else null
+  useBackDismiss(recordNote !== null, () => setRecordNote(null));
+  const confirmRecord = async () => {
+    const entry = await app.recordJournal(recipe.id, { notes: recordNote.trim() });
+    setRecordNote(null);
+    setRecordedAt(entry.recordedAt);
+  };
   const closeEditor = async () => {
     await refresh();
     setEditing(false);
@@ -213,22 +221,14 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
           Clear all tallies
         </button>
         <button
-          style={t.secondaryButton}
-          onClick={async () => {
-            const entry = await app.recordJournal(recipe.id);
-            setRecordedAt(entry.recordedAt);
-          }}
-        >
-          Record in journal
-        </button>
-        <button style={t.secondaryButton} onClick={() => setJournalOpen(true)}>Journal</button>
-        <button
           style={{ ...t.secondaryButton, ...(instances.length === 0 ? t.disabledButton : null) }}
           disabled={instances.length === 0}
           onClick={() => setCompleteConfirm(true)}
         >
           Complete this recipe
         </button>
+        <button style={t.secondaryButton} onClick={() => setRecordNote("")}>Record in journal</button>
+        <button style={t.secondaryButton} onClick={() => setJournalOpen(true)}>View journal</button>
       </div>
 
       {recordedAt && (
@@ -239,6 +239,29 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
 
       {journalOpen && (
         <JournalPage engine={engine} recipe={recipe} running={instances.length > 0} onClose={() => setJournalOpen(false)} />
+      )}
+
+      {recordNote !== null && (
+        <div style={t.overlay} onClick={() => setRecordNote(null)}>
+          <div style={t.overlayCard} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Record in journal</h3>
+            <p style={{ fontSize: 13.5, color: t.colors.textMuted, marginTop: 0 }}>
+              Saves a dated copy of the recipe as it stands, with the multiplier and tallies.
+            </p>
+            <label style={t.label}>Note (optional)</label>
+            <textarea
+              style={{ ...t.input, minHeight: 70 }}
+              autoFocus
+              placeholder="e.g. yield was 950 g; next time less salt"
+              value={recordNote}
+              onChange={(e) => setRecordNote(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+              <button style={{ ...t.secondaryButton, flex: 1 }} onClick={() => setRecordNote(null)}>Cancel</button>
+              <button style={{ ...t.primaryButton, flex: 1 }} onClick={confirmRecord}>OK</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {completeConfirm && (
