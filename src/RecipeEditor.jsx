@@ -202,7 +202,7 @@ export default function RecipeEditor({ engine, recipe, onDone, onDeleted }) {
             <button style={t.dangerButton} onClick={() => setDeleteConfirm(true)}>Delete recipe</button>
           ) : (
             <div>
-              <p style={{ fontSize: 13 }}>Delete this recipe and any running instances of its steps?</p>
+              <p style={{ fontSize: 13 }}>Delete this recipe, its journal, and any running instances of its steps?</p>
               <button style={t.secondaryButton} onClick={() => setDeleteConfirm(false)}>Cancel</button>{" "}
               <button style={t.dangerButton} onClick={del}>Delete</button>
             </div>

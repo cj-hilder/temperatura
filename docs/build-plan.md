@@ -96,7 +96,8 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   | `openSet` | which recipes are open (must persist — spec, Storage) |
   | `alarmThemes` | theme metadata |
   | `sounds` | decoded MP3 as ArrayBuffer, keyed by theme |
-  | `settings` | key–value |
+  | `settings` | key–value (also each running instance's graph, `graph:<id>`) |
+  | `journal` | dated recipe snapshots, indexed by `recipeId` (added in DB version 2) |
 
 - **`probes/`** — replaces the old single-device `thermometer.js`. One driver per kind of probe
   behind a common descriptor `{ kind, label, filters, optionalServices, serviceUuid, charUuid,
@@ -206,7 +207,10 @@ Write in this order:
 7. `testformat.mjs` — cheap, catches a lot.
 8. `testgraph.mjs` — `graphHistory.js`: bucketing, between-tick spikes kept, gaps, Restart,
    probe change, the cap (a month stays within it, spikes survive merging), the view range.
-9. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
+9. `testjournal.mjs` — record (snapshot isolated from later edits, multiplier and tallies),
+   newest-first list, notes, delete, restore (records the current version first; refused while
+   a step is in progress), recipe delete cascade, backup/restore with and without a journal.
+10. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
    (see §6), never cache a failure.
 
 ---

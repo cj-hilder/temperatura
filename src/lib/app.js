@@ -85,6 +85,58 @@ export function createAppController(deps = {}) {
     await clearGraphs(instances.map((i) => i.id));
   };
 
+  // ---- Journal ----
+  // A dated snapshot of the recipe as it stands — so someone who keeps
+  // tweaking ingredients, steps and alarms can look back at what they did
+  // last time — together with what the Recipe page was showing alongside it:
+  // the ingredients multiplier and the tally marks (what was actually made).
+
+  async function recordJournal(recipeId, { notes = "" } = {}) {
+    const recipe = await store.getRecipe(recipeId);
+    if (!recipe) throw new Error("That recipe no longer exists.");
+    const entry = {
+      id: store.uuid(),
+      recipeId,
+      recordedAt: now(),
+      // A deep copy: later edits to the recipe must never reach back into it.
+      recipe: JSON.parse(JSON.stringify(recipe)),
+      multiplier: await getIngredientsMultiplier(recipeId),
+      completionTicks: { ...(await getCompletionTicks(recipeId)) },
+      notes,
+    };
+    await store.addJournalEntry(entry);
+    return entry;
+  }
+
+  const listJournal = (recipeId) => store.listJournal(recipeId);
+  const getJournalEntry = (id) => store.getJournalEntry(id);
+  async function setJournalNotes(id, notes) {
+    const entry = await store.getJournalEntry(id);
+    if (!entry) return null;
+    const updated = { ...entry, notes };
+    await store.updateJournalEntry(updated);
+    return updated;
+  }
+  const deleteJournalEntry = (id) => store.deleteJournalEntry(id);
+
+  /**
+   * Puts the recipe back as it was in a journal entry. The version being
+   * replaced is recorded in the journal first, so restoring never loses
+   * anything (it can itself be restored). Refused while any of the recipe's
+   * steps is in progress: the restored version may not have those steps, and
+   * a running instance must never be left pointing at a step that no longer
+   * exists — the same reason a running step can't be deleted.
+   */
+  async function restoreJournalEntry(id) {
+    const entry = await store.getJournalEntry(id);
+    if (!entry) throw new Error("That journal entry no longer exists.");
+    const running = (await store.listInstancesForRecipe(entry.recipeId)).some((i) => i.status !== "completed");
+    if (running) throw new Error("Finish or complete the recipe's running steps before restoring an earlier version.");
+    await recordJournal(entry.recipeId, { notes: "Recorded automatically before restoring an earlier version." });
+    const { name, description, notes, servings, ingredients, steps } = entry.recipe;
+    return store.updateRecipe(entry.recipeId, { name, description, notes, servings, ingredients, steps });
+  }
+
   // ---- Temperature graphs ----
 
   const getGraph = (instanceId) => store.getSetting(GRAPH_PREFIX + instanceId, null);
@@ -362,6 +414,7 @@ export function createAppController(deps = {}) {
     getAutoClearTallies, setAutoClearTallies,
     getSixthsAndTwelfths, setSixthsAndTwelfths,
     getGraph, saveGraph, clearGraphs,
+    recordJournal, listJournal, getJournalEntry, setJournalNotes, deleteJournalEntry, restoreJournalEntry,
     startInstance: doStartInstance,
     pauseInstance: doPauseInstance,
     resumeInstance: doResumeInstance,

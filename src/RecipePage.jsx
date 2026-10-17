@@ -4,6 +4,7 @@ import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { formatDuration } from "./lib/format.js";
 import { durationKindLabel } from "./lib/recipe.js";
 import InstanceRow from "./InstanceRow.jsx";
+import JournalPage from "./JournalPage.jsx";
 import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -17,6 +18,8 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
   // A full-screen dialog, so back cancels it like every other overlay —
   // never confirms it.
   useBackDismiss(completeConfirm, () => setCompleteConfirm(false));
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [recordedAt, setRecordedAt] = useState(null); // "Recorded" confirmation
   const closeEditor = async () => {
     await refresh();
     setEditing(false);
@@ -210,6 +213,16 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
           Clear all tallies
         </button>
         <button
+          style={t.secondaryButton}
+          onClick={async () => {
+            const entry = await app.recordJournal(recipe.id);
+            setRecordedAt(entry.recordedAt);
+          }}
+        >
+          Record in journal
+        </button>
+        <button style={t.secondaryButton} onClick={() => setJournalOpen(true)}>Journal</button>
+        <button
           style={{ ...t.secondaryButton, ...(instances.length === 0 ? t.disabledButton : null) }}
           disabled={instances.length === 0}
           onClick={() => setCompleteConfirm(true)}
@@ -217,6 +230,16 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
           Complete this recipe
         </button>
       </div>
+
+      {recordedAt && (
+        <p style={{ fontSize: 12.5, color: t.colors.textMuted, padding: "0 16px", marginTop: -8 }}>
+          Recorded in the journal ({new Date(recordedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}).
+        </p>
+      )}
+
+      {journalOpen && (
+        <JournalPage engine={engine} recipe={recipe} running={instances.length > 0} onClose={() => setJournalOpen(false)} />
+      )}
 
       {completeConfirm && (
         <div style={t.overlay} onClick={() => setCompleteConfirm(false)}>

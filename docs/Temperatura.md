@@ -46,6 +46,17 @@ The Android Bluetooth stack limits how many devices can be connected at once, an
    5. Optionally a temperature band (low temperature and high temperature)  
    6. Any number of temperature alarms (these are progress alarms) \- and for each temperature alarm a parameter that specifies is the alarm ‘heating’ or ‘cooling’ (heating alarms will only trigger if going from below to above the temperature, cooling alarms are the opposite). Each temperature alarm has a name.
 
+## Journal
+
+A recipe tends to be tweaked over time — ingredients, instructions, alarms — and the journal keeps a reference to go back to: what exactly was done last time, and how it turned out.
+
+* **Record in journal** (Recipe page) saves an entry: the date and time, a complete copy of the recipe as it stands (name, description, notes, servings, ingredients, steps with their durations, bands and alarms), the ingredients multiplier in use, and the step tally marks (what was actually made). Later edits to the recipe never change an entry.
+* **Journal** (Recipe page) opens a full-screen list of the recipe's entries, newest first, each showing its date and time and the start of its notes. Back closes it.
+* Opening an entry shows its date, the multiplier and tallies it was recorded with, a **notes** box (e.g. "yield was 950 g; next time less salt"), saved on leaving the box, and the recipe as it was, laid out exactly like the PDF export and scaled by the multiplier it had then. Back returns to the list.
+* An entry can be **deleted** (with a confirm).
+* **Restore this version** puts the recipe back as it was in that entry — name, description, notes, servings, ingredients and steps; not the multiplier or tallies. The current version is recorded in the journal first (with a note saying so), so restoring never loses anything and can itself be undone the same way. It confirms first, and it is unavailable while any of the recipe's steps is in progress: the restored version might not have those steps, and a running instance must never be left on a step that no longer exists.
+* Each recipe has its own journal. Deleting a recipe deletes its journal (the delete confirm says so). Backup/restore includes the journal; single-recipe export/import does not.
+
 ## Ingredients multiplier
 
 An ingredient's quantity is entered as a plain decimal (e.g. `0.5`), a simple fraction (e.g. `1/2`) or a mixed number (e.g. `1 1/2`, a whole number and a fraction separated by a space) — all are accepted. A blank quantity is also allowed (e.g. an ingredient like "Salt — to taste" that has none); anything else is rejected at save time with a message explaining why.
@@ -123,9 +134,11 @@ The main page contains
    3. Duration and temperature band  
    4. For each instance of the step currently in progress, a row the same as the home page's sub-tile — its tag if it has one, the progress bar if the step has a duration, and the step timers (marked "paused" while paused) — minus the step name and description, which are already the tile's own heading. Tapping a row opens the step page on that instance (as tapping a home page sub-tile does).  
    5. Completion ticks: a small mark in the bottom-right corner of the tile for every time this step has been completed. These accumulate indefinitely, with one exception — see "Completion tallies" below.  
-7. Below the step tiles, two buttons:  
+7. Below the step tiles, these buttons:  
    1. **Clear all tallies** — zeroes every step's completion ticks for this recipe. Does not touch any running instance.  
    2. **Complete this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK; the back button cancels.
+   3. **Record in journal** — saves a dated snapshot of the recipe to its journal (see Journal below). A line beneath the buttons confirms it was recorded.
+   4. **Journal** — opens the recipe's journal.
 
 Tapping a tile causes the step page to appear, showing the step and the step controls
 

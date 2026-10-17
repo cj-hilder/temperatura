@@ -11,9 +11,12 @@ export const STORES = {
   ALARM_THEMES: "alarmThemes",
   SOUNDS: "sounds",
   SETTINGS: "settings",
+  JOURNAL: "journal",
 };
 export const DB_NAME = "temperatura";
-export const DB_VERSION = 1;
+// 2: adds the journal store. onupgradeneeded only ever ADDS what's missing,
+// so an existing install's data is untouched by the upgrade.
+export const DB_VERSION = 2;
 
 // The bundled synthesized-tone theme's well-known id — a fixed constant
 // rather than a generated uuid, mirroring DATA_LOSS_ALARM_ID in alarms.js, so
@@ -33,6 +36,7 @@ export const DEFAULT_THEME_ID = "default";
 // to the one field it needed; here it's declared once and used by name).
 const INDEXES = {
   [STORES.INSTANCES]: { recipeId: (v) => v.recipeId },
+  [STORES.JOURNAL]: { recipeId: (v) => v.recipeId },
 };
 
 function keyFor(store, value) {
@@ -90,6 +94,10 @@ export class IndexedDBBackend {
           db.createObjectStore(STORES.SOUNDS, { keyPath: "id" });
         if (!db.objectStoreNames.contains(STORES.SETTINGS))
           db.createObjectStore(STORES.SETTINGS); // out-of-line keys
+        if (!db.objectStoreNames.contains(STORES.JOURNAL)) {
+          const journal = db.createObjectStore(STORES.JOURNAL, { keyPath: "id" });
+          journal.createIndex("recipeId", "recipeId", { unique: false });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -181,6 +189,9 @@ export class Store {
   // is the unconditional cascade, same posture as RTW's deleteRoute.
   async deleteRecipe(id) {
     await this.b.deleteWhere(STORES.INSTANCES, (i) => i.recipeId === id);
+    // A recipe's journal is a record of THAT recipe; with it gone there's
+    // nothing to restore an entry into (the delete confirm says so).
+    await this.b.deleteWhere(STORES.JOURNAL, (e) => e.recipeId === id);
     await this.b.delete(STORES.OPEN_SET, id);
     await this.b.delete(STORES.RECIPES, id);
   }
@@ -281,13 +292,26 @@ export class Store {
   setSetting(key, value) { return this.b.putKV(STORES.SETTINGS, key, value); }
   deleteSetting(key) { return this.b.delete(STORES.SETTINGS, key); }
 
+  // ---- Journal ------------------------------------------------------------
+  // Dated snapshots of a recipe (see app.js recordJournal), newest first.
+
+  addJournalEntry(entry) { return this.b.put(STORES.JOURNAL, entry); }
+  getJournalEntry(id) { return this.b.get(STORES.JOURNAL, id); }
+  async listJournal(recipeId) {
+    const entries = await this.b.getAllByIndex(STORES.JOURNAL, "recipeId", recipeId);
+    return entries.sort((a, b) => b.recordedAt - a.recordedAt);
+  }
+  updateJournalEntry(entry) { return this.b.put(STORES.JOURNAL, entry); }
+  deleteJournalEntry(id) { return this.b.delete(STORES.JOURNAL, id); }
+
   // ---- Backup / restore (all data) -------------------------------------------
 
   async exportAll() {
-    const [recipes, instances, alarmThemes] = await Promise.all([
+    const [recipes, instances, alarmThemes, journal] = await Promise.all([
       this.b.getAll(STORES.RECIPES),
       this.b.getAll(STORES.INSTANCES),
       this.b.getAll(STORES.ALARM_THEMES),
+      this.b.getAll(STORES.JOURNAL),
     ]);
     const openRecipeIds = await this.listOpenRecipeIds();
     const sounds = {};
@@ -304,6 +328,7 @@ export class Store {
       alarmThemes,
       sounds,
       openRecipeIds,
+      journal,
     };
   }
 
@@ -332,6 +357,11 @@ export class Store {
     for (const recipeId of bundle.openRecipeIds ?? []) {
       if (mode === "merge" && (await exists(STORES.OPEN_SET, recipeId))) continue;
       await this.openRecipe(recipeId);
+    }
+    // Absent from backups made before the journal existed — nothing to add.
+    for (const entry of bundle.journal ?? []) {
+      if (mode === "merge" && (await exists(STORES.JOURNAL, entry.id))) continue;
+      await this.b.put(STORES.JOURNAL, entry);
     }
   }
 }
