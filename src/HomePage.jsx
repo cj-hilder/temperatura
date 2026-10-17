@@ -156,11 +156,11 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
 }
 
 function StepProgressBar({ progress, timers }) {
-  const { advancing, fillStyle } = progressBarStyle(progress.provenance, t.colors);
+  const { advancing, fillStyle, trackStyle } = progressBarStyle(progress.provenance, t.colors);
   const label = provenanceLabel(progress.provenance);
   return (
     <div style={{ marginTop: 6 }}>
-      <div style={{ height: 8, borderRadius: 4, background: t.colors.border, overflow: "hidden" }}>
+      <div style={{ height: 8, borderRadius: 4, background: trackStyle, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${progress.fraction * 100}%`, background: fillStyle }} />
       </div>
       <StepTimers timers={timers} style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 }}>

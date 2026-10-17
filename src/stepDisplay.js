@@ -73,17 +73,23 @@ export function alarmDetail(def, firedCount) {
  * Returns null if the step has no duration — spec: no progress bar at all
  * in that case.
  */
-export function computeStepProgress(instance, step, { probeFor }, now) {
-  if (!step.duration) return null;
-
-  // The probe this instance uses, if any (engine.probeFor) — its own sample
-  // and its own freshness, not one global reading shared by every step.
+/**
+ * Is live data coming in for this instance right now, and what is it — from
+ * the probe it uses, if any (engine.probeFor): its own sample and its own
+ * freshness, not one global reading shared by every step.
+ */
+export function liveReading(instance, { probeFor }, now) {
   const bound = probeFor(instance.id, now);
   const latestSample = bound?.sample ?? null;
-  const claimed = !!bound;
-  const msSinceLastPacket = bound?.msSinceLastPacket ?? null;
   const readingValid = !!(latestSample && latestSample.probePresent && latestSample.tempC != null);
-  const measured = isMeasured({ claimed, msSinceLastPacket, readingValid });
+  const measured = isMeasured({ claimed: !!bound, msSinceLastPacket: bound?.msSinceLastPacket ?? null, readingValid });
+  return { measured, latestSample };
+}
+
+export function computeStepProgress(instance, step, engine, now) {
+  if (!step.duration) return null;
+
+  const { measured, latestSample } = liveReading(instance, engine, now);
 
   const elapsedMs = durationBasisMs(instance, step.duration, now);
   const liveInBand = () =>
@@ -99,9 +105,12 @@ export function computeStepProgress(instance, step, { probeFor }, now) {
     provenance = "measured-in-band";
   } else if (step.duration.kind === "sinceBand") {
     // Before the band is first entered it is waiting exactly like an in-band
-    // step; once entered, the clock just runs — leaving the band doesn't stop
-    // it — so it reads solid, like fixed length.
-    provenance = instance.enteredBand ? "measured-in-band" : deriveProvenance({ measured, inBand: liveInBand() });
+    // step. Once entered, the clock just runs — leaving the band doesn't stop
+    // it — so it always advances; it is drawn hatched only while no data is
+    // coming in, so the bar still says when the probe has gone quiet.
+    provenance = instance.enteredBand
+      ? measured ? "measured-in-band" : "assumed-counting"
+      : deriveProvenance({ measured, inBand: liveInBand() });
   } else {
     provenance = deriveProvenance({ measured, inBand: liveInBand() });
   }
@@ -126,10 +135,11 @@ export function computeStepProgress(instance, step, { probeFor }, now) {
     // still gets set internally (advanceInBand runs every tick regardless of
     // duration kind, since app.tick() doesn't know duration kind), but a
     // fixed-length step must never surface it.
-    // A "since entering band" figure is an estimate exactly when the entry
-    // itself was assumed — after that it's plain running time.
-    latchedEstimate:
-      step.duration.kind === "fixed" ? false : step.duration.kind === "sinceBand" ? !!instance.bandEntryAssumed : instance.latchedEstimate,
+    // Neither clock is in doubt except time spent in band: band entry only
+    // ever happens on a real reading, and after that "since entering" is
+    // plain running time.
+    latchedEstimate: step.duration.kind === "inBand" ? instance.latchedEstimate : false,
+    manualInBand: !!instance.manualInBand,
     elapsedLabel: formatDuration(elapsedMs),
     remainingLabel: formatRemaining(remainingMs),
   };
@@ -161,7 +171,7 @@ export function stepTimers(instance, step, now) {
       // read as if the reading had just arrived.
       text: instance.enteredBand ? `${formatDuration(instance.accumulatedSinceBandMs ?? 0)} since entering band` : "band not reached yet",
       bold: kind === "sinceBand",
-      estimate: !!instance.enteredBand && !!instance.bandEntryAssumed,
+      estimate: false,
     },
     {
       key: "inBand",
@@ -178,20 +188,28 @@ export function stepTimers(instance, step, now) {
 export function progressBarStyle(provenance, colors) {
   const advancing = provenance === "measured-in-band" || provenance === "assumed-counting";
   const measured = provenance === "measured-in-band" || provenance === "measured-out-of-band";
+  const hatch = (stripe) => `repeating-linear-gradient(45deg, ${stripe}, ${stripe} 4px, transparent 4px, transparent 8px)`;
   return {
     advancing,
-    fillStyle: measured
-      ? colors.gradientEnd
-      : `repeating-linear-gradient(45deg, ${colors.gradientEnd}, ${colors.gradientEnd} 4px, transparent 4px, transparent 8px)`,
+    fillStyle: measured ? colors.gradientEnd : hatch(colors.gradientEnd),
+    // The empty part of the bar is hatched too while no data is coming in.
+    // Hatching only the fill was invisible exactly when it mattered most: a
+    // step with no probe has counted nothing, so its fill is 0% wide and the
+    // bar looked like an ordinary empty one.
+    trackStyle: measured ? colors.border : hatch(colors.border),
   };
 }
 
-export function provenanceLabel(provenance) {
+// `manual`: in band because the user pressed "Start in-band timer" — the
+// bar is advancing hatched, and this says why.
+export function provenanceLabel(provenance, { manual = false } = {}) {
   switch (provenance) {
     case "measured-out-of-band":
       return "waiting for temperature";
     case "assumed-not-counting":
       return "waiting for temperature — no data";
+    case "assumed-counting":
+      return manual ? "in band — set by hand" : null;
     default:
       return null;
   }

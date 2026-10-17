@@ -2,6 +2,7 @@ import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag, elapsedRunningMs, elapsedTotalMs, advanceInBand,
   isMeasured, deriveProvenance, extendDuration, noInstancesInProgress, durationBasisMs,
+  startInBandManually, canStartInBandManually,
 } from './src/lib/instances.js';
 
 let pass = 0, fail = 0;
@@ -98,17 +99,20 @@ console.log('\nIn-band accumulation under every provenance state:');
   ok('assumed+notCounting does not accumulate', i4.accumulatedInBandMs === 0);
   ok('assumed+notCounting does not latch (no in-band time was accumulated)', i4.latchedEstimate === false);
 
-  // Never any data at all — assumes in-band from the start, per spec.
+  // Never any data at all (no probe, or one that hasn't reported) — starts,
+  // and stays, out of band: in band is only ever learned from a real reading.
   let i5 = startInstance({ id: 'p5', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
   i5 = advanceInBand(i5, { measured: false, inBand: false }, 4000); // first-ever evaluation, no data yet
-  ok('no data ever: assumes in-band from the start', i5.accumulatedInBandMs === 4000);
-  ok('no data ever: latches immediately', i5.latchedEstimate === true);
+  ok('no data ever: starts out of band, accumulates nothing', i5.accumulatedInBandMs === 0 && i5.lastKnownInBand === false);
+  ok('no data ever: nothing to latch', i5.latchedEstimate === false);
+  i5 = advanceInBand(i5, { measured: false, inBand: false }, 60_000);
+  ok('…however long it goes on', i5.accumulatedInBandMs === 0);
 
   // Claimed but not yet measured (a live connection exists, the first real
-  // reading just hasn't arrived yet) — must NOT assume in-band, unlike the
-  // unclaimed case above. Bug: starting a step well outside the band was
-  // clocking up several seconds of in-band time before the first real
-  // reading corrected it.
+  // reading just hasn't arrived yet) — the same as no data at all above: out
+  // of band. (Originally a bug: starting a step well outside the band
+  // clocked up several seconds of in-band time before the first real
+  // reading corrected it.)
   let i6 = startInstance({ id: 'p6', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
   i6 = advanceInBand(i6, { measured: false, inBand: false, claimed: true }, 3000);
   ok('claimed but never yet measured: does NOT assume in-band', i6.accumulatedInBandMs === 0);
@@ -128,11 +132,11 @@ console.log('\nIn-band accumulation under every provenance state:');
   ok('after real measurement, an unmeasured gap still carries forward normally', i6.accumulatedInBandMs === 3000);
   ok('and still latches, same as any other post-measurement gap', i6.latchedEstimate === true);
 
-  // The unclaimed case is completely unaffected by everMeasured/claimed —
-  // still assumes in-band immediately, exactly as i5 above.
-  let i7 = startInstance({ id: 'p7', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
-  i7 = advanceInBand(i7, { measured: false, inBand: false, claimed: false }, 4000);
-  ok('unclaimed and never measured: still assumes in-band immediately', i7.accumulatedInBandMs === 4000);
+  // An instance saved under the old "assume in band without a probe" rule
+  // (lastKnownInBand true, never measured) no longer counts on that.
+  let i7 = { ...startInstance({ id: 'p7', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0), lastKnownInBand: true };
+  i7 = advanceInBand(i7, { measured: false, inBand: false }, 4000);
+  ok('a never-measured instance saved under the old rule does not count either', i7.accumulatedInBandMs === 0);
 }
 
 console.log('\nOnce latched, the flag survives regaining the probe:');
@@ -310,7 +314,6 @@ console.log('\nTime since entering band: starts at the first in-band span, then 
   ok('measured out of band: not entered, nothing accrued', !i.enteredBand && i.accumulatedSinceBandMs === 0);
   i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 5000);
   ok('entering: the entering span counts for both clocks alike', i.enteredBand && i.accumulatedSinceBandMs === 2000 && i.accumulatedInBandMs === 2000);
-  ok('a measured entry is not an estimate', i.bandEntryAssumed === false);
   i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 9000);
   ok('leaving the band: time since entering keeps counting, time in band does not', i.accumulatedSinceBandMs === 6000 && i.accumulatedInBandMs === 2000);
   i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 10000);
@@ -324,26 +327,28 @@ console.log('\nTime since entering band: starts at the first in-band span, then 
   ok('the paused span is excluded on resume', i.accumulatedSinceBandMs === 8000);
 
   i = restartInstance(i, [], 30000);
-  ok('Restart resets it: not entered, nothing accrued, no estimate', !i.enteredBand && i.accumulatedSinceBandMs === 0 && !i.bandEntryAssumed);
+  ok('Restart resets it: not entered, nothing accrued, back to out of band', !i.enteredBand && i.accumulatedSinceBandMs === 0 && i.lastKnownInBand === false);
 }
 
-console.log('\nTime since entering band follows the in-band rules when there is no live reading:');
+console.log('\nTime since entering band: never entered without a real in-band reading:');
 {
   const start = () => startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
-  let u = advanceInBand(start(), { measured: false, inBand: true, claimed: false }, 4000);
-  ok('no probe at all: assumed in band at once, so it enters straight away…', u.enteredBand && u.accumulatedSinceBandMs === 4000);
-  ok('…and the entry is marked as an estimate', u.bandEntryAssumed === true);
-  u = advanceInBand(u, { measured: true, inBand: false, claimed: true }, 6000);
-  ok('a later real reading out of band does not undo the entry (or the estimate)', u.accumulatedSinceBandMs === 6000 && u.bandEntryAssumed === true);
+  let u = advanceInBand(start(), { measured: false, inBand: false }, 60_000);
+  ok('no data at all: not entered, nothing accrued', !u.enteredBand && u.accumulatedSinceBandMs === 0);
+  u = advanceInBand(u, { measured: true, inBand: true }, 62_000);
+  ok('the first real in-band reading enters it', u.enteredBand && u.accumulatedSinceBandMs === 2000);
+  u = advanceInBand(u, { measured: false, inBand: false }, 70_000);
+  ok('losing data afterwards: still entered, still counting', u.accumulatedSinceBandMs === 10_000);
 
-  let c = advanceInBand(start(), { measured: false, inBand: true, claimed: true }, 4000);
-  ok('a probe that has not reported yet: waits, does not assume entry', !c.enteredBand && c.accumulatedSinceBandMs === 0);
+  let o = advanceInBand(start(), { measured: true, inBand: false }, 5000);
+  o = advanceInBand(o, { measured: false, inBand: false }, 9000);
+  ok('data lost while out of band: stays out (not entered)', !o.enteredBand && o.accumulatedSinceBandMs === 0);
 }
 
 console.log('\nAn instance saved before these fields existed:');
 {
   const legacy = { ...startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0), accumulatedInBandMs: 50000 };
-  delete legacy.accumulatedSinceBandMs; delete legacy.enteredBand; delete legacy.bandEntryAssumed;
+  delete legacy.accumulatedSinceBandMs; delete legacy.enteredBand;
   const i = advanceInBand(legacy, { measured: true, inBand: true, claimed: true }, 1000);
   ok('enters afresh on its next in-band tick, without NaN', i.enteredBand && i.accumulatedSinceBandMs === 1000 && i.accumulatedInBandMs === 51000);
 }
@@ -358,6 +363,37 @@ console.log('\ndurationBasisMs — the one clock the bar, the alarms and Extend 
   ok('fixed length: running time', durationBasisMs(i, { kind: 'fixed', ms: 1 }, 8000) === 8000);
   ok('time since entering band', durationBasisMs(i, { kind: 'sinceBand', ms: 1 }, 8000) === 5000);
   ok('time spent in band', durationBasisMs(i, { kind: 'inBand', ms: 1 }, 8000) === 2000);
+}
+
+console.log('\n"Start in-band timer" — a step watched on a thermometer the app cannot read:');
+{
+  const banded = { tempBand: { lowC: 20, highC: 30 } };
+  let i = startInstance({ id: 'm', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  i = advanceInBand(i, { measured: false, inBand: false }, 5000);
+  ok('offered: running, band, no data, out of band', canStartInBandManually(i, banded, false));
+  ok('not offered without a band', !canStartInBandManually(i, { tempBand: null }, false));
+  ok('not offered while live data is coming in', !canStartInBandManually(i, banded, true));
+
+  i = startInBandManually(i, 8000);
+  ok('the time before the press stays out of band', i.accumulatedInBandMs === 0 && i.lastSampleAt === 8000);
+  ok('now in band, set by hand', i.manualInBand && i.lastKnownInBand);
+  ok('no longer offered once in band', !canStartInBandManually(i, banded, false));
+
+  i = advanceInBand(i, { measured: false, inBand: false }, 18000);
+  ok('stays in band while there is no data: both band clocks run', i.accumulatedInBandMs === 10000 && i.enteredBand && i.accumulatedSinceBandMs === 10000);
+  ok('it is still an assumption, so it is marked as an estimate', i.latchedEstimate === true);
+
+  i = advanceInBand(i, { measured: true, inBand: false }, 20000);
+  ok('a real reading takes over (here: out of band) and ends the manual state', !i.manualInBand && i.accumulatedInBandMs === 10000 && !i.lastKnownInBand);
+  i = advanceInBand(i, { measured: false, inBand: false }, 25000);
+  ok('losing data again carries the REAL last state (out), not the manual one', i.accumulatedInBandMs === 10000);
+  ok('…so the button is offered again', canStartInBandManually(i, banded, false));
+
+  let r = startInBandManually(advanceInBand(startInstance({ id: 'm2', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0), { measured: false, inBand: false }, 1000), 1000);
+  r = restartInstance(r, [], 2000);
+  ok('Restart clears it', r.manualInBand === false && r.lastKnownInBand === false);
+  const paused = pauseInstance(startInstance({ id: 'm3', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0), 1000);
+  ok('does nothing to a paused step (and is not offered)', startInBandManually(paused, 2000) === paused && !canStartInBandManually(paused, banded, false));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

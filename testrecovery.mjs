@@ -76,18 +76,17 @@ console.log('\nLatched estimate flag survives a restart:');
 
   const app1 = mkApp();
   const recipe = await app1.createRecipe({ name: 'Tofu', description: '', notes: [], servings: '', ingredients: [], steps: [] });
-  // inst-3 is never given a probe (no freeProbeIds, and tick() below isn't
-  // told it is claimed) — historically a dummy instance had to take the claim first (first instance
-  // always does), which would defeat the point: the "assumes in-band from
-  // the start" default only applies pre-measurement when unclaimed.
-  await app1.startInstance({ id: 'inst-dummy', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs: [] });
   await app1.startInstance({ id: 'inst-3', recipeId: recipe.id, stepId: 'step-1', stepAlarmDefs });
 
-  // Never claimed by this instance, so every tick is "assumed" — this
-  // exercises the "assumes in-band from the start" + latch path.
+  // The only way to latch it: a real in-band reading, then the data stops —
+  // in band carries on as an assumption, which is what latches. (No probe
+  // at all no longer latches anything: such a step stays out of band.)
   clock += 2000;
-  await app1.tick('inst-3', { stepAlarmDefs, hasTempInterest: false, tempBand, tempC: null, msSinceLastPacket: null, readingValid: false });
-  ok('latched after an unclaimed/no-data tick', (await app1.store.getInstance('inst-3')).latchedEstimate === true);
+  await app1.tick('inst-3', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: 25, msSinceLastPacket: 0, readingValid: true, claimed: true });
+  ok('a measured in-band tick does not latch', (await app1.store.getInstance('inst-3')).latchedEstimate === false);
+  clock += 2000;
+  await app1.tick('inst-3', { stepAlarmDefs, hasTempInterest: true, tempBand, tempC: null, msSinceLastPacket: 60_000, readingValid: false, claimed: true });
+  ok('latched once in band is carried on without data', (await app1.store.getInstance('inst-3')).latchedEstimate === true);
 
   // Restart — the app itself, via a fresh controller against the same backend.
   const app2 = mkApp();
@@ -499,6 +498,31 @@ console.log('\nA "time since entering band" duration: its alarm runs on that clo
   // Extend uses the same clock.
   const extended = await app.extendDuration('inst-sv', 5000, duration, false);
   ok('Extend adds to the same target (10 s + 5 s)', duration.ms + extended.durationExtensionMs === 15_000);
+}
+
+console.log('\n"Start in-band timer" end to end: no probe at all, the in-band clock started by hand:');
+{
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const app = createAppController({ backend, now: () => clock });
+  const recipe = await app.createRecipe({ name: 'Proof', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 10_000, kind: 'inBand' };
+  const tempBand = { lowC: 24, highC: 28 };
+  const alarmId = durationAlarmId('step-p');
+  const stepAlarmDefs = [{ id: alarmId, kind: 'duration', name: 'Duration reached', atMs: duration.ms, repeat: false, intervalMs: null, theme: null }];
+  await app.startInstance({ id: 'inst-p', recipeId: recipe.id, stepId: 'step-p', stepAlarmDefs });
+  const tickAt = (t) => { clock = t; return app.tick('inst-p', { stepAlarmDefs, hasTempInterest: true, tempBand, duration, tempC: null, msSinceLastPacket: null, readingValid: false, claimed: false }); };
+
+  for (let t = 1000; t <= 30_000; t += 1000) await tickAt(t);
+  let inst = await app.store.getInstance('inst-p');
+  ok('30 s with no probe: nothing counted, no alarm', inst.accumulatedInBandMs === 0 && !inst.alarmState[alarmId].sounding);
+
+  await app.startInBandManually('inst-p');
+  for (let t = 31_000; t <= 39_000; t += 1000) await tickAt(t);
+  inst = await app.store.getInstance('inst-p');
+  ok('9 s after starting it by hand: 9 s in band, not yet', inst.accumulatedInBandMs === 9000 && !inst.alarmState[alarmId].sounding);
+  const result = await tickAt(40_000);
+  ok('the duration alarm fires 10 s after the timer was started by hand', result.newlyFired.some((f) => f.id === alarmId));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

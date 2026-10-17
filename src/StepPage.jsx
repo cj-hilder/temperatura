@@ -4,7 +4,8 @@ import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
 import StepTimers from "./StepTimers.jsx";
 import { buildStepAlarmDefs, durationKindLabel } from "./lib/recipe.js";
-import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms, stepTimers } from "./stepDisplay.js";
+import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms, stepTimers, liveReading } from "./stepDisplay.js";
+import { canStartInBandManually } from "./lib/instances.js";
 import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -101,6 +102,10 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
     else await app.resumeInstance(instance.id);
     await refresh();
   };
+  const handleStartInBand = async () => {
+    await app.startInBandManually(instance.id);
+    await refresh();
+  };
   const handleRestart = async () => {
     await app.restartInstance(instance.id, stepAlarmDefs);
     await refresh();
@@ -190,7 +195,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
 
         {progress && (
           <div style={{ margin: "12px 0" }}>
-            <div style={{ height: 10, borderRadius: 5, background: t.colors.border, overflow: "hidden" }}>
+            <div style={{ height: 10, borderRadius: 5, background: progressBarStyle(progress.provenance, t.colors).trackStyle, overflow: "hidden" }}>
               <div
                 style={{
                   height: "100%",
@@ -210,12 +215,24 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
               ) : (
                 "remaining"
               )}
-              {provenanceLabel(progress.provenance) ? ` — ${provenanceLabel(progress.provenance)}` : ""}
+              {provenanceLabel(progress.provenance, { manual: progress.manualInBand }) ? ` — ${provenanceLabel(progress.provenance, { manual: progress.manualInBand })}` : ""}
             </StepTimers>
           </div>
         )}
 
         {timers && !progress && <StepTimers timers={timers} style={{ fontSize: 13, color: t.colors.textMuted, margin: "12px 0" }} />}
+
+        {instance && canStartInBandManually(instance, step, liveReading(instance, engine, Date.now()).measured) && (
+          // For a step watched on a thermometer the app can't read (or with
+          // no probe at all): nothing will ever arrive to say "in band", so
+          // the user says it. Real readings, if any arrive, take over again.
+          <div style={{ margin: "4px 0 12px" }}>
+            <button style={t.secondaryButton} onClick={handleStartInBand}>Start in-band timer</button>
+            <div style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
+              No temperature data. If your own thermometer shows it's in the band, start the in-band timer by hand.
+            </div>
+          </div>
+        )}
 
         {alarmLines.length > 0 && (
           <div style={{ margin: "12px 0" }}>

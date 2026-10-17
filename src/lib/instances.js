@@ -18,21 +18,15 @@ export function startInstance({ id, recipeId, stepId, stepAlarmDefs }, now) {
     accumulatedInBandMs: 0,
     // Time since the reading first entered the temperature band — running
     // time only, and it keeps counting if the reading leaves the band again
-    // (see advanceInBand). `enteredBand` says whether that has happened yet;
-    // `bandEntryAssumed` whether the entry itself was an assumption (no live
-    // reading), which is what makes a "time since entering band" figure an
-    // estimate.
+    // (see advanceInBand). `enteredBand` says whether that has happened yet.
     accumulatedSinceBandMs: 0,
     enteredBand: false,
-    bandEntryAssumed: false,
     lastSampleAt: now,
-    // "assume in-band if no data available" — the starting assumption with no
-    // observations yet is exactly the no-data case. Only actually applied
-    // before the FIRST real measurement when this instance holds no claim —
-    // see advanceInBand's everMeasured/claimed handling for why a claimed
-    // instance's very first, still-unmeasured tick(s) must NOT default to
-    // this optimistic guess.
-    lastKnownInBand: true,
+    // Every step starts OUT of band: in band is only ever learned from a
+    // real reading (see advanceInBand) — or from the user saying so, with
+    // "Start in-band timer" (see startInBandManually).
+    lastKnownInBand: false,
+    manualInBand: false,
     everMeasured: false,
     latchedEstimate: false,
     completedAt: null,
@@ -73,9 +67,9 @@ export function restartInstance(instance, stepAlarmDefs, now) {
     accumulatedInBandMs: 0,
     accumulatedSinceBandMs: 0,
     enteredBand: false,
-    bandEntryAssumed: false,
     lastSampleAt: now,
-    lastKnownInBand: true,
+    lastKnownInBand: false,
+    manualInBand: false,
     everMeasured: false,
     latchedEstimate: false,
     completedAt: null,
@@ -203,61 +197,77 @@ export function durationBasisMs(instance, duration, now) {
  * (there's no live connection yet), and the arithmetic falls out correctly —
  * no separate recovery path needed.
  *
- * The one case that ISN'T a carried-forward continuation is the very first
- * evaluation of a claimed instance's life, before it has ever been measured
- * even once: `lastKnownInBand`'s bootstrap value of `true` exists so a step
- * with NO thermometer at all (unclaimed, or genuinely no BLE ever) doesn't
- * sit frozen forever — but a CLAIMED instance is actively expecting a real
- * reading any moment (the connection is already up), and defaulting to
- * "assume in-band" for however long that takes (observed: several seconds,
- * on real BLE hardware) silently hands out real elapsed time — and, worse,
- * permanently latches the "≈ estimated" flag — for a step that's about to be
- * fully measured and was never actually without a thermometer. `everMeasured`
- * exists solely to tell these two apart: before the first-ever measurement,
- * a CLAIMED instance assumes out-of-band (not counting, "waiting for
- * temperature") instead of the spec's optimistic default; an UNCLAIMED one
- * still gets that default immediately, unchanged. Once a real measurement
- * has happened even once, `everMeasured` is permanently true and every
- * later gap is a genuine continuation, handled exactly as before regardless
- * of claim.
+ * Before the first real measurement there is nothing to carry forward, and
+ * the answer is always "out of band" — whether the instance has no probe,
+ * its probe is disconnected, or it simply hasn't reported yet. In band is
+ * only ever learned from a real in-band reading; only AFTER one has
+ * happened (`everMeasured`) does losing data carry the last real state on.
+ * (The original spec assumed in band when a step had no thermometer at all,
+ * so a probe-less step would still progress — but that handed out in-band
+ * time, and band entry, that no reading ever showed. Instances saved under
+ * that rule still have lastKnownInBand: true with everMeasured false, which
+ * is why the check is on everMeasured, not on lastKnownInBand alone.)
  *
  * Frozen entirely while paused, per spec ("In-band accumulation pauses").
  *
- * @param {object} sample - { measured: boolean, inBand: boolean, claimed: boolean }
+ * The one other source of "in band" is the user: "Start in-band timer"
+ * (startInBandManually) for a step watched on a thermometer the app can't
+ * read. That holds only while there is no data — the first real reading
+ * takes over and clears it, in or out of band as the reading says.
+ *
+ * @param {object} sample - { measured: boolean, inBand: boolean }
  */
-export function advanceInBand(instance, { measured, inBand, claimed }, now) {
+export function advanceInBand(instance, { measured, inBand }, now) {
   if (instance.status !== "running") return instance;
 
   const elapsed = Math.max(0, now - instance.lastSampleAt);
   const everMeasured = instance.everMeasured || measured;
-  const effectiveInBand = measured
-    ? inBand
-    : everMeasured
-      ? instance.lastKnownInBand
-      : !claimed; // never-yet-measured: optimistic only when no reading is expected at all
+  const manualInBand = !measured && !!instance.manualInBand;
+  const effectiveInBand = measured ? inBand : manualInBand || (everMeasured && instance.lastKnownInBand);
 
   // Entering the band is a one-way door: from the first span that counts as
   // in band, time-since-entering accrues for every running span after it,
   // in band or not. The entering span itself is credited to both clocks
-  // alike, so time since entering can never be less than time in band.
+  // alike, so time since entering can never be less than time in band. By
+  // the rule above, the entering span is always a measured one.
   // (Instances saved before these fields existed simply enter the band
   // afresh on their next in-band tick.)
-  const entering = !instance.enteredBand && effectiveInBand;
   const enteredBand = !!instance.enteredBand || effectiveInBand;
 
   return {
     ...instance,
     lastSampleAt: now,
     lastKnownInBand: effectiveInBand,
+    manualInBand,
     everMeasured,
     accumulatedInBandMs: instance.accumulatedInBandMs + (effectiveInBand ? elapsed : 0),
     accumulatedSinceBandMs: (instance.accumulatedSinceBandMs ?? 0) + (enteredBand ? elapsed : 0),
     enteredBand,
-    bandEntryAssumed: entering ? !measured : !!instance.bandEntryAssumed,
     // Latches permanently once any in-band time was accumulated while assumed
     // — even if the instance later regains the probe.
     latchedEstimate: instance.latchedEstimate || (effectiveInBand && !measured),
   };
+}
+
+/**
+ * "Start in-band timer": the user, watching a thermometer the app can't read
+ * (or none at all), says the temperature is in the band. Time up to now is
+ * settled first under the state as it was (out of band), so the press only
+ * affects what comes after it. It is still not a measurement — the time it
+ * counts is assumed, hatched and "≈" like any other — and the first real
+ * reading overrides it (see advanceInBand).
+ */
+export function startInBandManually(instance, now) {
+  if (instance.status !== "running") return instance;
+  const settled = advanceInBand(instance, { measured: false, inBand: false }, now);
+  return { ...settled, manualInBand: true, lastKnownInBand: true };
+}
+
+// The button's visibility rule: a running step with a band, no live data
+// coming in, and currently out of band — the one situation where the app
+// would otherwise sit waiting for a reading it can never get.
+export function canStartInBandManually(instance, step, measured) {
+  return instance.status === "running" && !!step.tempBand && !measured && !instance.lastKnownInBand && !instance.manualInBand;
 }
 
 // Provenance's "Measured" formula (build-plan: "does this instance use a

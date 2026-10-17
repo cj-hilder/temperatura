@@ -7,7 +7,7 @@ import { validateRecipe, durationAlarmId } from "./recipe.js";
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag as setInstanceTag, elapsedRunningMs, elapsedTotalMs,
-  advanceInBand, isMeasured, deriveProvenance, extendDuration, durationBasisMs,
+  advanceInBand, isMeasured, deriveProvenance, extendDuration, durationBasisMs, startInBandManually as startInBandManuallyPure,
   noInstancesInProgress,
 } from "./instances.js";
 import {
@@ -231,6 +231,12 @@ export function createAppController(deps = {}) {
   // opens, same as it always has), so `alarmState[alarmId].missed` has
   // already been cleared to false. The caller must capture whether it WAS
   // missed at the moment the user tapped Extend, before that happened.
+  async function doStartInBandManually(instanceId) {
+    const updated = startInBandManuallyPure(await store.getInstance(instanceId), now());
+    await store.updateInstance(updated);
+    return updated;
+  }
+
   async function doExtendDuration(instanceId, extraMs, duration, isMissed = false) {
     const instance = await store.getInstance(instanceId);
     const alarmId = durationAlarmId(instance.stepId);
@@ -273,7 +279,7 @@ export function createAppController(deps = {}) {
     const inBand = measured ? isInBand(tempC, tempBand) : instance.lastKnownInBand;
 
     const t = now();
-    const advanced = advanceInBand(instance, { measured, inBand, claimed }, t);
+    const advanced = advanceInBand(instance, { measured, inBand }, t);
     const running = advanced.status === "running";
     // Time/duration alarms must never disagree with the progress bar about
     // when a duration is reached, so they share its exact basis.
@@ -345,6 +351,7 @@ export function createAppController(deps = {}) {
     duplicateInstance: doDuplicateInstance,
     setTag: doSetTag,
     extendDuration: doExtendDuration,
+    startInBandManually: doStartInBandManually,
     silenceDurationAlarm,
     elapsedRunningMs: (instance) => elapsedRunningMs(instance, now()),
     elapsedTotalMs: (instance) => elapsedTotalMs(instance, now()),

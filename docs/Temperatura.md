@@ -170,6 +170,16 @@ Under the progress bar (or on their own when the step has no duration), a runnin
 
 The same line appears on the step page and on the home page's sub-tiles.
 
+#### Temperature graph
+
+While a step instance is in progress, the step page shows a live temperature–time graph of that instance, drawn as plain SVG (no charting library):
+
+* **What is plotted:** the readings from whichever probe the instance uses, from Start. If the instance changes probe part-way, the line simply carries on with the new probe's readings. Any stretch with no probe or no data is a gap in the line, not a guess.
+* **What is drawn with it:** the temperature band shaded, if the step has one, and a dashed line at each temperature alarm's threshold, so the readings can be seen approaching them.
+* **Time axis:** the whole run so far, rescaling as it grows. Tapping the graph toggles to the last 10 minutes for close-up detail, and back.
+* **Persistence:** the graph survives the app being killed or the phone rebooting, like everything else about a running instance: its points are stored with the instance, thinned to one point every 10 seconds, while the live end of the line still updates every second.
+* **Long runs:** a step can run for days or months, so each instance keeps at most about 2,000 stored points. When that is reached, the oldest points are merged two into one — keeping each merged pair's highest and lowest reading, so a spike or dip is never smoothed away — and the whole run stays graphable at a coarser resolution.
+
 #### Step controls
 
 Start, Pause/resume, Restart, Complete, Duplicate, Extend
@@ -201,6 +211,17 @@ Tapping Extend: silences the duration-reached alarm if it is currently sounding,
 Every duration a user types anywhere in the app — a step's duration, a time alarm's trigger point into the step, a time alarm's repeat interval, and how much time to add on Extend — uses one standard control: three boxes for hours, minutes, and seconds, separated by colons, each showing `00` at zero. This replaced an earlier mixture of ad hoc minutes-only and seconds-only fields across different screens.
 
 This does not apply to an alarm theme's ramp or repeat-interval-of-silence (Settings) — those are short audio parameters measured in a handful of seconds, not a step-timing duration, and stay plain seconds fields. An alarm theme's "Silence after" field is the exception: despite living in the same Settings card, it is a real duration (default 2 minutes, plausibly several) rather than an audio microparameter, so it does use the standard control.
+
+#### Days
+
+Steps can last from minutes to months (a long ferment, a cure, an ageing cheese), so durations support **days** as well as hours, minutes and seconds — without cluttering the common case, where nearly every step is minutes or hours long. Days is the largest unit; there are no months.
+
+* **Display.** Under 24 hours nothing changes (`5:00`, `2:15:00`). From 24 hours a day count goes in front, and seconds are dropped — a ticking seconds digit on a multi-day step is clutter, not information: `3d 4:05` (3 days, 4 hours, 5 minutes). This applies everywhere a duration or a running time is shown: the step timers, remaining / extra time, the step's own duration, the tiles, Extend, and the PDF export. The alarm overlay's fixed-width form follows the same rule: `(time 00:05:00)` under a day, `(time 3d 04:05)` from a day.
+* **Entry.** The standard control gains a **days** box, to the left of the hours box, that is hidden until needed:
+  * Typing 24 or more into the hours box rolls the excess over into days (36 hours becomes 1 day 12 hours), and the days box appears.
+  * A small "+ days" link beside the boxes reveals the days box directly, for typing "14 days" straight in.
+  * Once shown, the days box stays for as long as the value is a day or more.
+  Seconds can still be entered on a multi-day value; they just aren't displayed.
 
 #### Step components
 
@@ -376,9 +397,22 @@ If several alarms are sounding, each has its own notification and its own tag, s
 
 ## In-band accumulation
 
-If the BLE connection is lost, or the probe is taken by another instance after this one has started to accumulate in-band time, then the timer continues with the last value it had. That is, it continues to count in-band if the last data point was in-band, and vice versa. If an instance never has any temperature data (no BLE, another instance uses the only probe throughout) then it accumulates in-band time from the start (assume in-band if no data available, assume last data remains valid if data flow stops)
+Every step with a temperature band **starts out of band**, and is only ever counted as in band on the strength of a **real in-band reading**. It makes no difference why there is no reading — no probe assigned, no probe connected, or a probe that simply hasn't reported yet: until a real reading shows the temperature in the band, the instance counts no in-band time and has not entered the band, and its bar shows 'waiting for temperature – no data'.
 
-The "assume in-band if no data available" default only applies to an instance that uses no probe at all (or never gets one) — it does not apply to an instance that uses a probe before its very first real measurement. Such an instance is actively expecting a reading any moment (the connection already exists), and on real hardware the first packet after assignment can take a few seconds to arrive ; assuming in-band for that gap silently hands out real elapsed time — and permanently marks the run as "≈ estimated" — for a step that was never actually without a thermometer. Such an instance therefore counts nothing at all (shows "waiting for temperature") until its first real measurement, then behaves exactly as measured data dictates from then on. Once it has been measured at least once, every later gap is an ordinary continuation per the paragraph above, regardless of assignment.
+Once there has been at least one real reading, losing the data (the BLE connection drops, the probe is taken by another instance, the reading becomes unusable) carries the last real state on: the instance continues to count in-band if the last reading was in band, and stays out of band if it was out of band, until live data returns.
+
+(This replaces an earlier rule that assumed in band from the start when a step had no thermometer at all, so that a probe-less step would still progress. That handed out in-band time, and band entry, that no reading had ever shown.)
+
+#### Starting the in-band timer by hand
+
+Two situations leave a band step with no data, and the rules above serve both:
+
+1. **The probe isn't connected (or assigned) yet.** Because nothing counts until a real reading, there is time to notice and fix it without the step's clock having run.
+2. **The step is watched on a thermometer the app can't read** (a non-Bluetooth thermometer, or none at all). No reading will ever arrive, so the user says when it's in the band.
+
+For the second, the step page shows a **Start in-band timer** button whenever the step is running, has a temperature band, has no live data coming in, and is out of band. Pressing it settles the time so far as out of band, then puts the step in band, where it stays for as long as there is no data — both band clocks run (a 'time since entering band' step enters the band at that moment). It is still an assumption, not a measurement: the bar is hatched and advancing, captioned "in band — set by hand", and in-band time carries the '≈' estimate flag.
+
+The first real reading takes over and ends the manual state, in or out of band as the reading says; if data is then lost again, the last real state carries on (and if that is out of band, the button is offered again). Restart clears it.
 
 #### Measured vs assumed time
 
@@ -387,7 +421,7 @@ The rules above mean an instance can accumulate in-band time on assumption rathe
 At any moment an instance with an 'in temperature band' duration is in one of two provenance states:
 
 * **Measured** – this instance uses a probe, that probe's data is fresh (see "Data freshness" under Bluetooth specification), and the reading is valid (probe present, not the 0x8000 sentinel for an FTHERM). In-band or out-of-band is being decided by live data.
-* **Assumed** – anything else: no probe is assigned, the probe's connection is down, or the reading is unusable. In-band or out-of-band is being carried forward per the rules above.
+* **Assumed** – anything else: no probe is assigned, the probe's connection is down, or the reading is unusable. In-band or out-of-band is being carried forward per the rules above — and before the first real reading that always means out of band.
 
 This gives four progress bar states, and they must be visually distinct:
 
@@ -398,11 +432,11 @@ This gives four progress bar states, and they must be visually distinct:
 
 An instance with a 'fixed length' duration is always measured and always renders solid. Time is never in doubt.
 
-An instance with a 'time since entering band' duration is in these same states until the reading first enters the band (waiting for temperature, live or with no data). Once it has entered, its clock simply runs — leaving the band doesn't stop it — so from then on it renders solid like fixed length. The band entry follows the same rules as in-band accumulation: an instance that uses no probe assumes it is in the band from the start, so it enters at once; one whose probe hasn't reported yet waits for a real reading.
+An instance with a 'time since entering band' duration is in these same states until the reading first enters the band (waiting for temperature, live or with no data). Band entry only ever happens on a real in-band reading. Once it has entered, its clock simply runs — leaving the band doesn't stop it — so it always advances: solid while live data is coming in, hatched while it isn't, so the bar still shows that the probe has gone quiet even though the count itself is not in doubt.
 
 ##### The estimate flag latches
 
-Once an instance has accumulated any in-band time while assumed, it is flagged as estimated for the rest of its life, even if it later regains the probe. Its accumulated total is partly assumption from then on and cannot be un-assumed. For 'time since entering band' the figure is an estimate exactly when the band entry itself was assumed — after entry it is plain running time. Show the flag next to the estimated timer (see Step timers) on the step page and on the home sub-tile - an '≈' marker is enough, with the reason available on the step page.
+Once an instance has accumulated any in-band time while assumed, it is flagged as estimated for the rest of its life, even if it later regains the probe. Its accumulated total is partly assumption from then on and cannot be un-assumed. A 'time since entering band' figure is never an estimate: entry only happens on a real reading, and after that it is plain running time. Show the flag next to the estimated timer (see Step timers) on the step page and on the home sub-tile - an '≈' marker is enough, with the reason available on the step page.
 
 #### Pause
 
