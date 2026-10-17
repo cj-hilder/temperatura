@@ -1,4 +1,4 @@
-import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs, formatHMS, parseTemperatureText } from './src/lib/format.js';
+import { formatTemperature, formatDuration, formatElapsed, formatRemaining, msToHMS, hmsToMs, formatHMS, parseTemperatureText, msToDHMS, dhmsToMs, timeBoxChange } from './src/lib/format.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -79,6 +79,34 @@ console.log('\nparseTemperatureText — the temperature entry box:');
   ok('a second point is dropped', p('3.7.5').text === '3.75');
   ok('a minus anywhere but the front is dropped', p('3-7').text === '37');
   ok('letters and spaces are dropped', p(' 4a2°').text === '42');
+}
+
+const HOUR = 3_600_000, DAY = 24 * HOUR, MIN = 60_000;
+
+console.log('\nDays — display: unchanged under 24 h; from a day, days in front and no seconds:');
+{
+  ok('23:59:59 is still H:MM:SS', formatDuration(DAY - 1000) === '23:59:59');
+  ok('exactly a day', formatDuration(DAY) === '1d 0:00');
+  ok('3 days 4 h 5 min 37 s drops the seconds', formatDuration(3 * DAY + 4 * HOUR + 5 * MIN + 37_000) === '3d 4:05');
+  ok('minutes stay zero-padded', formatDuration(2 * DAY + 3 * MIN) === '2d 0:03');
+  ok('months are just a lot of days', formatDuration(95 * DAY + 12 * HOUR) === '95d 12:00');
+  ok('overdue by days', formatRemaining(-(DAY + 30 * MIN)) === '+1d 0:30');
+  ok('overlay fixed width under a day is unchanged', formatHMS(5 * MIN) === '00:05:00');
+  ok('overlay fixed width from a day: "3d 04:05", no seconds', formatHMS(3 * DAY + 4 * HOUR + 5 * MIN + 37_000) === '3d 04:05');
+}
+
+console.log('\nDays — entry:');
+{
+  ok('msToDHMS splits days out of the hours', JSON.stringify(msToDHMS(2 * DAY + 3 * HOUR + 4 * MIN + 5000)) === JSON.stringify({ d: 2, h: 3, m: 4, s: 5 }));
+  ok('dhmsToMs is its inverse', dhmsToMs({ d: 2, h: 3, m: 4, s: 5 }) === 2 * DAY + 3 * HOUR + 4 * MIN + 5000);
+  ok('under a day there are no days', msToDHMS(5 * HOUR).d === 0);
+  const r = timeBoxChange(0, 'h', 36);
+  ok('36 typed into hours rolls over to 1 day 12 hours', JSON.stringify(msToDHMS(r.ms)) === JSON.stringify({ d: 1, h: 12, m: 0, s: 0 }) && r.rolledIntoDays);
+  const r2 = timeBoxChange(DAY + 5 * HOUR, 'h', 30);
+  ok('…adding to days already there (1 d 5 h, hours set to 30 → 2 d 6 h)', JSON.stringify(msToDHMS(r2.ms)) === JSON.stringify({ d: 2, h: 6, m: 0, s: 0 }));
+  ok('23 hours does not roll over', !timeBoxChange(0, 'h', 23).rolledIntoDays && msToDHMS(timeBoxChange(0, 'h', 23).ms).h === 23);
+  ok('typing days keeps the hours, minutes and seconds', JSON.stringify(msToDHMS(timeBoxChange(4 * HOUR + 30_000, 'd', 14).ms)) === JSON.stringify({ d: 14, h: 4, m: 0, s: 30 }));
+  ok('seconds can still be entered on a multi-day value', msToDHMS(timeBoxChange(DAY, 's', 7).ms).s === 7);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
