@@ -83,6 +83,16 @@ function mergePair(a, b) {
 }
 
 /**
+ * Has this run ever had a real reading? The step page only shows the graph
+ * once it has — a step used purely as a timer would otherwise carry an
+ * empty graph for its whole life. Once shown it stays, even if the data
+ * later stops: the gap is part of what the graph has to say.
+ */
+export function hasTemperatureData(history) {
+  return !!history?.points.some((p) => !p.gap);
+}
+
+/**
  * What to draw: the points inside the window, split into runs at gaps, and
  * the vertical range to fit — readings plus band and alarm thresholds, so
  * the lines the readings are approaching are always on screen.

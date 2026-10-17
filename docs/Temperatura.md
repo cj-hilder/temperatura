@@ -185,7 +185,7 @@ The same line appears on the step page and on the home page's sub-tiles.
 
 #### Temperature graph
 
-While a step instance is in progress, the step page shows a live temperature–time graph of that instance, drawn as plain SVG (no charting library):
+While a step instance is in progress, the step page shows a live temperature–time graph of that instance, drawn as plain SVG (no charting library). It appears once the first real temperature reading for the instance arrives, so a step used purely as a timer never carries an empty graph; once it has appeared it stays, even if the data later stops (the gap shows).
 
 * **What is plotted:** the readings from whichever probe the instance uses, from Start. If the instance changes probe part-way, the line simply carries on with the new probe's readings. Any stretch with no probe or no data is a gap in the line, not a guess.
 * **What is drawn with it:** the temperature band shaded, if the step has one, and a dashed line at each temperature alarm's threshold, so the readings can be seen approaching them.

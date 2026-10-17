@@ -4,6 +4,7 @@ import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
 import StepTimers from "./StepTimers.jsx";
 import TemperatureGraph from "./TemperatureGraph.jsx";
+import { hasTemperatureData } from "./lib/graphHistory.js";
 import { buildStepAlarmDefs, durationKindLabel } from "./lib/recipe.js";
 import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms, stepTimers, liveReading } from "./stepDisplay.js";
 import { canStartInBandManually } from "./lib/instances.js";
@@ -247,9 +248,12 @@ export default function StepPage({ engine, recipeId, stepId, initialInstanceId, 
         {instance && (() => {
           const now = Date.now();
           const live = liveReading(instance, engine, now);
+          const history = engine.graphFor(instance.id);
+          // Not until the first real reading (see hasTemperatureData).
+          if (!live.measured && !hasTemperatureData(history)) return null;
           return (
             <TemperatureGraph
-              history={engine.graphFor(instance.id)}
+              history={history}
               startedAt={instance.startedAt}
               step={step}
               liveTempC={live.measured ? live.latestSample.tempC : null}

@@ -70,7 +70,6 @@ export default function TemperatureGraph({ history, startedAt, step, liveTempC, 
       </svg>
       <div style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 }}>
         {recent ? "Last 10 minutes · tap for the whole run" : "Whole run · tap for the last 10 minutes"}
-        {runs.length === 0 && liveTempC == null ? " · no temperature data yet" : ""}
       </div>
     </div>
   );

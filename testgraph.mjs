@@ -1,4 +1,4 @@
-import { recordTick, graphView, emptyHistory, BUCKET_MS, MAX_POINTS } from './src/lib/graphHistory.js';
+import { recordTick, graphView, emptyHistory, hasTemperatureData, BUCKET_MS, MAX_POINTS } from './src/lib/graphHistory.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -87,6 +87,14 @@ console.log('\ngraphView — runs split at gaps, the window, and a range that in
   const flat = graphView(run([20, 20]), { from: START, to: START + 10_000 });
   ok('a dead-steady reading still gets a non-zero range', flat.yMax > flat.yMin);
   ok('no data at all: a default range, no runs', graphView(null, { from: 0, to: 1 }).runs.length === 0);
+}
+
+console.log('\nhasTemperatureData — the graph only appears once a real reading has arrived:');
+{
+  ok('no history at all: no', !hasTemperatureData(null));
+  ok('a timer-only run (never any data): no', !hasTemperatureData(run([null, null, null])));
+  ok('after the first reading: yes', hasTemperatureData(run([null, 20])));
+  ok('…and still yes after the data stops again (the gap is worth showing)', hasTemperatureData(run([20, null, null])));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
