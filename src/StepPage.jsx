@@ -81,6 +81,16 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   const stepIndex = recipe.steps.findIndex((s) => s.id === stepId);
   const prevStep = stepIndex > 0 ? recipe.steps[stepIndex - 1] : null;
   const nextStep = stepIndex < recipe.steps.length - 1 ? recipe.steps[stepIndex + 1] : null;
+  // A tally mark means this step has been done (since the tallies were last
+  // cleared), so moving on is the likely next action, not starting it again:
+  // Next — or, on the last step, Complete recipe — becomes the main button.
+  const tallied = (entry.completionTicks?.[stepId] ?? 0) > 0;
+  // "Complete recipe" does exactly what the Recipe page's "Complete this
+  // recipe" does, confirm included — so it goes there and opens that
+  // confirm. With nothing running there is nothing to complete (that button
+  // is disabled then), so it just goes back to the recipe.
+  const completeRecipeFromStep = () =>
+    navigate({ view: "recipe", recipeId, confirmComplete: entry.instances.length > 0 });
 
   const handleStart = async () => {
     await app.startInstance({ id: crypto.randomUUID(), recipeId, stepId, stepAlarmDefs, isFirstStep: stepIndex === 0, freeProbeIds: engine.freeConnectedProbeIds() });
@@ -229,14 +239,16 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
               >
                 Previous
               </button>
-              <button style={t.primaryButton} onClick={handleStart}>Start</button>
-              <button
-                style={{ ...t.smallButton, ...(nextStep ? null : t.disabledButton) }}
-                disabled={!nextStep}
-                onClick={() => nextStep && navigate({ view: "step", recipeId, stepId: nextStep.id })}
-              >
-                Next
-              </button>
+              <button style={tallied ? t.smallButton : t.primaryButton} onClick={handleStart}>Start</button>
+              {nextStep ? (
+                <button style={tallied ? t.primaryButton : t.smallButton} onClick={() => navigate({ view: "step", recipeId, stepId: nextStep.id })}>
+                  Next
+                </button>
+              ) : (
+                <button style={tallied ? t.primaryButton : t.smallButton} onClick={completeRecipeFromStep}>
+                  Complete recipe
+                </button>
+              )}
             </>
           )}
           {instance && (

@@ -120,7 +120,7 @@ The main page contains
    5. Completion ticks: a small mark in the bottom-right corner of the tile for every time this step has been completed. These accumulate indefinitely, with one exception — see "Completion tallies" below.  
 7. Below the step tiles, two buttons:  
    1. **Clear all tallies** — zeroes every step's completion ticks for this recipe. Does not touch any running instance.  
-   2. **Complete this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK.
+   2. **Complete this recipe** — completes every instance of this recipe that is currently in progress (running or paused), leaving any not-started or already-completed instance untouched. Confirms first: "This will complete N running steps", with Cancel/OK; the back button cancels.
 
 Tapping a tile causes the step page to appear, showing the step and the step controls
 
@@ -166,6 +166,8 @@ Start, Pause/resume, Restart, Complete, Duplicate, Extend
 * Complete:  set the step to ‘not in progress’, no more of the step’s alarms will trigger.  
 * Duplicate: Start another instance of this step  
 * Extend: add time to this instance’s duration without editing the recipe — see Extending a duration.
+* Previous / Next: when no instance of the step is in progress, Previous and Next sit either side of Start and go to the previous / next step of the recipe. Previous is greyed out on the first step. On the last step, Next is replaced by **Complete recipe**, which goes back to the recipe page and does what that page's "Complete this recipe" does: if any of the recipe's steps are in progress it opens that confirm ("This will complete N running steps", Cancel/OK); if none are, it just returns to the recipe page.
+* Which of these is the main (large) button: Start, unless the step has a tally mark (it has been completed since the tallies were last cleared — see the recipe page). Then the likely next action is moving on, so Next — or Complete recipe on the last step — becomes the main button and Start a small one.
 
 #### Extending a duration
 

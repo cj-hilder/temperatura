@@ -6,10 +6,15 @@ import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js"
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
 
-export default function RecipePage({ engine, recipeId, initialEditing, navigate, onOpenMenu, onOpenProbes }) {
+export default function RecipePage({ engine, recipeId, initialEditing, initialCompleteConfirm, navigate, onOpenMenu, onOpenProbes }) {
   const { app, refresh, openRecipes, completeRecipe } = engine;
   const [editing, setEditing] = useState(!!initialEditing);
-  const [completeConfirm, setCompleteConfirm] = useState(false);
+  // Opened already showing the confirm when the step page's "Complete
+  // recipe" sent us here (StepPage only asks when something is running).
+  const [completeConfirm, setCompleteConfirm] = useState(!!initialCompleteConfirm);
+  // A full-screen dialog, so back cancels it like every other overlay —
+  // never confirms it.
+  useBackDismiss(completeConfirm, () => setCompleteConfirm(false));
   const closeEditor = async () => {
     await refresh();
     setEditing(false);

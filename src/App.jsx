@@ -96,7 +96,13 @@ export default function App() {
       removeEventListener: window.removeEventListener.bind(window),
       onBack: () => {
         const { screen: currentScreen } = backStateRef.current;
-        switch (resolveBackAction(backStateRef.current)) {
+        // `dismissable` is read live, not from the render-time snapshot:
+        // whatever claims the slot does so in its own effect, after App's
+        // render, and App may not render again for up to a second — a quick
+        // back press straight after opening a dialog would otherwise skip
+        // the dialog and leave the page.
+        const state = { ...backStateRef.current, dismissable: !!backDismissRef.current };
+        switch (resolveBackAction(state)) {
           case "silenceEarliest": engine.resolveEarliestGlobal(); break;
           case "dismiss": backDismissRef.current?.(); break;
           case "toRecipe": setScreen({ view: "recipe", recipeId: currentScreen.recipeId }); break;
@@ -152,7 +158,7 @@ export default function App() {
   const currentRecipeId = screen.view === "recipe" || screen.view === "step" ? screen.recipeId : null;
   const activeScreen =
     screen.view === "recipe" ? (
-      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
+      <RecipePage engine={engine} recipeId={screen.recipeId} initialEditing={screen.editing} initialCompleteConfirm={screen.confirmComplete} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : screen.view === "step" ? (
       <StepPage engine={engine} recipeId={screen.recipeId} stepId={screen.stepId} navigate={setScreen} onOpenMenu={onOpenMenu} onOpenProbes={onOpenProbes} />
     ) : (
