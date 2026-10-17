@@ -16,6 +16,7 @@
 import { formatDuration } from "./lib/format.js";
 import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { describeStepAlarms } from "./stepDisplay.js";
+import { durationKindLabel } from "./lib/recipe.js";
 
 // Recipe/step fields are freeform user text; they end up interpolated into
 // an HTML string that a real browser then parses, so they need escaping the
@@ -31,7 +32,7 @@ function stepSummaryLine(step) {
   const parts = [];
   parts.push(
     step.duration
-      ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
+      ? `${durationKindLabel(step.duration.kind)} — ${formatDuration(step.duration.ms)}`
       : "No set duration"
   );
   if (step.tempBand) parts.push(`Band ${step.tempBand.lowC}–${step.tempBand.highC}°C`);

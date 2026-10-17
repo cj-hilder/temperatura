@@ -470,5 +470,36 @@ console.log('\nProbe assignment housekeeping in app.js — migration, close/dele
   ok('pruning drops assignments of instances that are no longer active', Object.keys(await app.getProbeAssignments()).length === 0);
 }
 
+console.log('\nA "time since entering band" duration: its alarm runs on that clock, end to end through app.tick():');
+{
+  const backend = new MemoryBackend();
+  let clock = 0;
+  const app = createAppController({ backend, now: () => clock });
+  const recipe = await app.createRecipe({ name: 'Sous vide', description: '', notes: [], servings: '', ingredients: [], steps: [] });
+  const duration = { ms: 10_000, kind: 'sinceBand' };
+  const tempBand = { lowC: 55, highC: 60 };
+  const alarmId = durationAlarmId('step-sv');
+  const stepAlarmDefs = [{ id: alarmId, kind: 'duration', name: 'Duration reached', atMs: duration.ms, repeat: false, intervalMs: null, theme: null }];
+  await app.startInstance({ id: 'inst-sv', recipeId: recipe.id, stepId: 'step-sv', stepAlarmDefs });
+  const tickAt = (t, tempC) => { clock = t; return app.tick('inst-sv', { stepAlarmDefs, hasTempInterest: true, tempBand, duration, tempC, msSinceLastPacket: 0, readingValid: true, claimed: true }); };
+
+  // Heating up for 20 s: longer than the 10 s duration, but the band is not reached.
+  for (let t = 1000; t <= 20_000; t += 1000) await tickAt(t, 30 + t / 1000);
+  let inst = await app.store.getInstance('inst-sv');
+  ok('20 s of heating up does not reach a 10 s "since entering band" duration', !inst.alarmState[alarmId].sounding && !inst.enteredBand);
+
+  // Into the band at 21 s, then out again at 25 s (it overshoots).
+  for (let t = 21_000; t <= 24_000; t += 1000) await tickAt(t, 57);
+  for (let t = 25_000; t <= 29_000; t += 1000) await tickAt(t, 62);
+  inst = await app.store.getInstance('inst-sv');
+  ok('9 s since entering (4 in band, 5 out): not yet', !inst.alarmState[alarmId].sounding && inst.accumulatedSinceBandMs === 9000 && inst.accumulatedInBandMs === 4000);
+  const result = await tickAt(30_000, 62);
+  ok('fires 10 s after entering the band, though the reading is out of band now', result.newlyFired.some((f) => f.id === alarmId));
+
+  // Extend uses the same clock.
+  const extended = await app.extendDuration('inst-sv', 5000, duration, false);
+  ok('Extend adds to the same target (10 s + 5 s)', duration.ms + extended.durationExtensionMs === 15_000);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

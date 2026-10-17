@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import StepEditor from "./StepEditor.jsx";
 import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
-import { buildStepAlarmDefs } from "./lib/recipe.js";
-import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms } from "./stepDisplay.js";
-import { elapsedRunningMs } from "./lib/instances.js";
+import StepTimers from "./StepTimers.jsx";
+import { buildStepAlarmDefs, durationKindLabel } from "./lib/recipe.js";
+import { computeStepProgress, progressBarStyle, provenanceLabel, describeStepAlarms, stepTimers } from "./stepDisplay.js";
 import { formatDuration } from "./lib/format.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -130,9 +130,9 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
   const progress = instance ? computeStepProgress(instance, step, engine, Date.now()) : null;
   // computeStepProgress only returns a figure when the step has a set
   // duration — spec: no progress bar at all without one. A running instance
-  // still has a real elapsed time even so; show that on its own, with no
-  // bar and no remaining/provenance since there's no duration to base them on.
-  const elapsedOnlyMs = !progress && instance ? elapsedRunningMs(instance, Date.now()) : null;
+  // still has real timers even so; they show on their own, with no bar and
+  // no remaining/provenance since there's no duration to base them on.
+  const timers = instance ? stepTimers(instance, step, Date.now()) : null;
   const alarmLines = describeStepAlarms(step);
 
   return (
@@ -179,9 +179,7 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
         <p style={{ color: t.colors.textMuted }}>{step.description}</p>
         <p style={{ fontSize: 12, color: t.colors.textMuted, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span>
-            {step.duration
-              ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
-              : "No set duration"}
+            {step.duration ? `${durationKindLabel(step.duration.kind)} — ${formatDuration(step.duration.ms)}` : "No set duration"}
             {step.tempBand ? ` · Band ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
             {instance?.durationExtensionMs > 0 ? ` · +${formatDuration(instance.durationExtensionMs)} extended` : ""}
           </span>
@@ -201,8 +199,9 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
                 }}
               />
             </div>
-            <div style={{ fontSize: 13, color: t.colors.textMuted, marginTop: 4 }}>
-              {progress.elapsedLabel} elapsed{progress.latchedEstimate ? " ≈" : ""} · {progress.remainingLabel}{" "}
+            <StepTimers timers={timers} style={{ fontSize: 13, color: t.colors.textMuted, marginTop: 4 }}>
+              {" · "}
+              {progress.remainingLabel}{" "}
               {progress.remainingMs < 0 ? (
                 // Past the duration: the alarm may already be silenced, but
                 // the clock keeps running until Complete — this is the only
@@ -212,13 +211,11 @@ export default function StepPage({ engine, recipeId, stepId, navigate, onOpenMen
                 "remaining"
               )}
               {provenanceLabel(progress.provenance) ? ` — ${provenanceLabel(progress.provenance)}` : ""}
-            </div>
+            </StepTimers>
           </div>
         )}
 
-        {elapsedOnlyMs != null && (
-          <p style={{ fontSize: 13, color: t.colors.textMuted, margin: "12px 0" }}>{formatDuration(elapsedOnlyMs)} elapsed</p>
-        )}
+        {timers && !progress && <StepTimers timers={timers} style={{ fontSize: 13, color: t.colors.textMuted, margin: "12px 0" }} />}
 
         {alarmLines.length > 0 && (
           <div style={{ margin: "12px 0" }}>

@@ -16,6 +16,15 @@ export function startInstance({ id, recipeId, stepId, stepAlarmDefs }, now) {
     pausedAt: null,
     accumulatedPausedMs: 0,
     accumulatedInBandMs: 0,
+    // Time since the reading first entered the temperature band — running
+    // time only, and it keeps counting if the reading leaves the band again
+    // (see advanceInBand). `enteredBand` says whether that has happened yet;
+    // `bandEntryAssumed` whether the entry itself was an assumption (no live
+    // reading), which is what makes a "time since entering band" figure an
+    // estimate.
+    accumulatedSinceBandMs: 0,
+    enteredBand: false,
+    bandEntryAssumed: false,
     lastSampleAt: now,
     // "assume in-band if no data available" — the starting assumption with no
     // observations yet is exactly the no-data case. Only actually applied
@@ -62,6 +71,9 @@ export function restartInstance(instance, stepAlarmDefs, now) {
     pausedAt: null,
     accumulatedPausedMs: 0,
     accumulatedInBandMs: 0,
+    accumulatedSinceBandMs: 0,
+    enteredBand: false,
+    bandEntryAssumed: false,
     lastSampleAt: now,
     lastKnownInBand: true,
     everMeasured: false,
@@ -160,6 +172,19 @@ export function elapsedTotalMs(instance, now) {
 }
 
 /**
+ * The clock a step's duration counts against — shared by the progress bar,
+ * the time/duration alarms and Extend, so they can never disagree about when
+ * a duration is reached: time spent in band for "inBand", time since first
+ * entering the band for "sinceBand", and plain running time otherwise (no
+ * duration, or "fixed length", which the spec pins as never in doubt).
+ */
+export function durationBasisMs(instance, duration, now) {
+  if (duration?.kind === "inBand") return instance.accumulatedInBandMs;
+  if (duration?.kind === "sinceBand") return instance.accumulatedSinceBandMs ?? 0;
+  return elapsedRunningMs(instance, now);
+}
+
+/**
  * Advances in-band accumulation from `instance.lastSampleAt` to `now`. Two
  * different things carry forward differently across that elapsed span:
  *
@@ -211,12 +236,24 @@ export function advanceInBand(instance, { measured, inBand, claimed }, now) {
       ? instance.lastKnownInBand
       : !claimed; // never-yet-measured: optimistic only when no reading is expected at all
 
+  // Entering the band is a one-way door: from the first span that counts as
+  // in band, time-since-entering accrues for every running span after it,
+  // in band or not. The entering span itself is credited to both clocks
+  // alike, so time since entering can never be less than time in band.
+  // (Instances saved before these fields existed simply enter the band
+  // afresh on their next in-band tick.)
+  const entering = !instance.enteredBand && effectiveInBand;
+  const enteredBand = !!instance.enteredBand || effectiveInBand;
+
   return {
     ...instance,
     lastSampleAt: now,
     lastKnownInBand: effectiveInBand,
     everMeasured,
     accumulatedInBandMs: instance.accumulatedInBandMs + (effectiveInBand ? elapsed : 0),
+    accumulatedSinceBandMs: (instance.accumulatedSinceBandMs ?? 0) + (enteredBand ? elapsed : 0),
+    enteredBand,
+    bandEntryAssumed: entering ? !measured : !!instance.bandEntryAssumed,
     // Latches permanently once any in-band time was accumulated while assumed
     // — even if the instance later regains the probe.
     latchedEstimate: instance.latchedEstimate || (effectiveInBand && !measured),

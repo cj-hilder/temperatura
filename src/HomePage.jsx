@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { createBlankRecipe } from "./lib/recipe.js";
-import { computeStepProgress, progressBarStyle, provenanceLabel } from "./stepDisplay.js";
-import { elapsedRunningMs } from "./lib/instances.js";
-import { formatDuration } from "./lib/format.js";
+import { computeStepProgress, progressBarStyle, provenanceLabel, stepTimers } from "./stepDisplay.js";
+import StepTimers from "./StepTimers.jsx";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { useBackDismiss } from "./useBackDismiss.js";
@@ -116,14 +115,14 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
                   </div>
                   <div style={{ ...t.clamp(2), fontSize: 12.5, color: t.colors.textMuted }}>{step.description}</div>
                   {progress ? (
-                    <StepProgressBar progress={progress} />
+                    <StepProgressBar progress={progress} timers={stepTimers(instance, step, Date.now())} />
                   ) : (
-                    // No duration, so no bar — but the clock is still the
-                    // most useful thing to see at a glance. Running time
-                    // only, the same figure the step page shows.
-                    <div style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 6 }}>
-                      {formatDuration(elapsedRunningMs(instance, Date.now()))} elapsed{instance.status === "paused" ? " — paused" : ""}
-                    </div>
+                    // No duration, so no bar — but the timers are still the
+                    // most useful thing to see at a glance (the same ones the
+                    // step page shows).
+                    <StepTimers timers={stepTimers(instance, step, Date.now())} style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 6 }}>
+                      {instance.status === "paused" ? " — paused" : ""}
+                    </StepTimers>
                   )}
                 </div>
               );
@@ -156,7 +155,7 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
   );
 }
 
-function StepProgressBar({ progress }) {
+function StepProgressBar({ progress, timers }) {
   const { advancing, fillStyle } = progressBarStyle(progress.provenance, t.colors);
   const label = provenanceLabel(progress.provenance);
   return (
@@ -164,10 +163,9 @@ function StepProgressBar({ progress }) {
       <div style={{ height: 8, borderRadius: 4, background: t.colors.border, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${progress.fraction * 100}%`, background: fillStyle }} />
       </div>
-      <div style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 }}>
-        {progress.elapsedLabel} elapsed{progress.latchedEstimate ? " ≈" : ""}
+      <StepTimers timers={timers} style={{ fontSize: 11.5, color: t.colors.textMuted, marginTop: 2 }}>
         {!advancing && label ? ` — ${label}` : ""}
-      </div>
+      </StepTimers>
     </div>
   );
 }

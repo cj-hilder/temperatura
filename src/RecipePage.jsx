@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import RecipeEditor from "./RecipeEditor.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { formatDuration } from "./lib/format.js";
+import { durationKindLabel } from "./lib/recipe.js";
 import { parseQuantity, scaleQuantity, formatQuantity } from "./lib/quantity.js";
 import { useBackDismiss } from "./useBackDismiss.js";
 import * as t from "./theme.js";
@@ -173,7 +174,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
             <div style={{ ...t.clamp(2), fontSize: 13, color: t.colors.textMuted }}>{step.description}</div>
             <div style={{ fontSize: 12, color: t.colors.textMuted, marginTop: 4 }}>
               {step.duration
-                ? `${step.duration.kind === "fixed" ? "Fixed" : "In temperature band"} duration — ${formatDuration(step.duration.ms)}`
+                ? `${durationKindLabel(step.duration.kind)} — ${formatDuration(step.duration.ms)}`
                 : "No set duration"}
               {step.tempBand ? ` · ${step.tempBand.lowC}–${step.tempBand.highC}°C` : ""}
               {running.length > 0 ? ` · ${running.length} in progress` : ""}

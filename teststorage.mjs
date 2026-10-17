@@ -1,5 +1,5 @@
 import { Store, MemoryBackend, STORES, DEFAULT_THEME_ID } from './src/lib/storage.js';
-import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId, sortTimeAlarms, sortTempAlarms, moveItem, withEditKeys, withoutEditKeys } from './src/lib/recipe.js';
+import { createBlankRecipe, createBlankStep, recipeToExportJSON, recipeFromImportJSON, buildStepAlarmDefs, durationAlarmId, sortTimeAlarms, sortTempAlarms, moveItem, withEditKeys, withoutEditKeys, validateStep, DURATION_KINDS, durationKindLabel } from './src/lib/recipe.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -307,6 +307,20 @@ console.log('\nwithEditKeys / withoutEditKeys — throwaway row keys for ingredi
   const reordered = withoutEditKeys(moveItem(keyed, 1, 0));
   ok('keys are stripped on the way out, order kept', JSON.stringify(reordered) === JSON.stringify([ings[1], ings[0]]));
   ok('the stored ingredients never had keys added', !('_key' in ings[0]));
+}
+
+console.log('\nvalidateStep — duration kinds:');
+{
+  const step = (duration, tempBand = null) => ({ ...createBlankStep('s'), name: 'S', duration, tempBand });
+  const band = { lowC: 20, highC: 30 };
+  ok('menu order and labels', DURATION_KINDS.map((d) => d.label).join(' / ') === 'Fixed length / Time since entering band / Time spent in band');
+  ok('"inBand" is labelled time spent in band (stored key unchanged)', durationKindLabel('inBand') === 'Time spent in band');
+  ok('fixed length needs no band', validateStep(step({ kind: 'fixed', ms: 1000 })).valid);
+  ok('time since entering band with a band is valid', validateStep(step({ kind: 'sinceBand', ms: 1000 }, band)).valid);
+  const noBand = validateStep(step({ kind: 'sinceBand', ms: 1000 }));
+  ok('time since entering band without a band is rejected, by name', !noBand.valid && noBand.errors.some((e) => e.includes('"time since entering band" duration needs a temperature band')));
+  ok('time spent in band without a band is rejected too', !validateStep(step({ kind: 'inBand', ms: 1000 })).valid);
+  ok('an unknown kind is rejected', !validateStep(step({ kind: 'nonsense', ms: 1000 }, band)).valid);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

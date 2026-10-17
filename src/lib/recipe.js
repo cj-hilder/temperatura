@@ -22,7 +22,7 @@ export function createBlankStep(id) {
     id,
     name: "",
     description: "",
-    duration: null, // { ms, kind: "fixed" | "inBand" }
+    duration: null, // { ms, kind: "fixed" | "sinceBand" | "inBand" } — see DURATION_KINDS
     timeAlarms: [], // { id, name, atMs, repeat, intervalMs, theme }
     tempBand: null, // { lowC, highC }
     tempAlarms: [], // { id, name, thresholdC, direction: "heating" | "cooling", oneShot, theme } — oneShot absent (older recipes) = every time
@@ -36,6 +36,17 @@ export function createBlankStep(id) {
   };
 }
 
+// The three kinds of duration, in menu order, with what the user sees. The
+// stored keys predate "sinceBand": "inBand" is time SPENT in the band.
+export const DURATION_KINDS = [
+  { kind: "fixed", label: "Fixed length" },
+  { kind: "sinceBand", label: "Time since entering band" },
+  { kind: "inBand", label: "Time spent in band" },
+];
+export const durationKindLabel = (kind) => DURATION_KINDS.find((d) => d.kind === kind)?.label ?? kind;
+// Both band kinds count against the band, so both need one.
+export const durationNeedsBand = (kind) => kind === "sinceBand" || kind === "inBand";
+
 /**
  * @returns {{valid: boolean, errors: string[]}}
  */
@@ -44,12 +55,11 @@ export function validateStep(step) {
   if (!step.name || typeof step.name !== "string") errors.push("Step name is required.");
 
   if (step.duration) {
-    if (!["fixed", "inBand"].includes(step.duration.kind)) {
-      errors.push(`Step "${step.name}": duration kind must be "fixed" or "inBand".`);
+    if (!DURATION_KINDS.some((d) => d.kind === step.duration.kind)) {
+      errors.push(`Step "${step.name}": duration kind must be one of ${DURATION_KINDS.map((d) => `"${d.kind}"`).join(", ")}.`);
     }
-    // The one combination the spec calls out explicitly as invalid.
-    if (step.duration.kind === "inBand" && !step.tempBand) {
-      errors.push(`Step "${step.name}": a duration "in temperature band" needs a temperature band.`);
+    if (durationNeedsBand(step.duration.kind) && !step.tempBand) {
+      errors.push(`Step "${step.name}": a "${durationKindLabel(step.duration.kind).toLowerCase()}" duration needs a temperature band.`);
     }
     if (!(step.duration.ms > 0)) {
       errors.push(`Step "${step.name}": duration must be a positive number of milliseconds.`);

@@ -36,7 +36,12 @@ The Android Bluetooth stack limits how many devices can be connected at once, an
 6. Any number of recipe steps, each step comprises  
    1. A step name  
    2. A step description  
-   3. Optionally a duration \- and a parameter that specifies is the duration ‘fixed length’ or ‘in temperature band’ (‘in temperature band’ means the duration represents the total time spent between the high and low temperatures specified in the temperature band)  
+   3. Optionally a duration \- and a parameter that specifies which kind of duration it is, shown in the step editor as:
+      * **Fixed length** — running time from Start.
+      * **Time since entering band** — running time from the moment the reading first enters the temperature band. Once entered it keeps counting even if the reading leaves the band again; re-entering doesn't restart it (Restart does).
+      * **Time spent in band** — the total time spent between the high and low temperatures of the band (stored as `inBand`; the editor used to call it "in temperature band").
+
+      Both band kinds need a temperature band. In all three, paused time doesn't count.  
    4. Any number of time alarms (these are progress alarms) \- and for each time alarm a parameter that specifies is the alarm ‘one shot’ or ‘repeating’, and if repeating what the repeat interval is. Each time alarm has a name.  
    5. Optionally a temperature band (low temperature and high temperature)  
    6. Any number of temperature alarms (these are progress alarms) \- and for each temperature alarm a parameter that specifies is the alarm ‘heating’ or ‘cooling’ (heating alarms will only trigger if going from below to above the temperature, cooling alarms are the opposite). Each temperature alarm has a name.
@@ -93,8 +98,8 @@ A collection of tiles, vertically stacked, one for each open recipe. Each tile c
   * Step name  
   * If the step has a tag, the tag name  
   * Step description (restricted to two lines, with ellipsis if required)  
-  * If the step has a duration, a progress bar. For an 'in temperature band' duration the bar also shows whether the time being accumulated is measured or assumed, and carries the estimate flag if it applies - see In-band accumulation.
-  * If the step has no duration, the elapsed time instead (running time, excluding pauses — the same figure the step page shows), marked "paused" while it is paused.
+  * If the step has a duration, a progress bar. For a band duration the bar also shows whether the time being accumulated is measured or assumed, and carries the estimate flag if it applies - see In-band accumulation.
+  * The step's timers (see Step timers under the step page) — under the bar, or on their own when the step has no duration, marked "paused" while it is paused.
 
 Tapping a tile causes the recipe page to appear, showing the recipe
 
@@ -156,11 +161,20 @@ A back arrow and a small heading showing the recipe's name, above the step name 
 
 Current temperature (if connected): the reading from the probe this instance uses, labelled with the probe's name. On a step that is not yet started, it shows the reading from the probe that Start would automatically assign, if there is exactly one.
 
+#### Step timers
+
+Under the progress bar (or on their own when the step has no duration), a running step shows its timers on one line:
+
+* A step with no temperature band shows its **elapsed** time — running time, excluding pauses.
+* A step with a temperature band shows three: **elapsed**, **time since entering band** ("band not reached yet" until it has) and **time spent in band**, e.g. "12:30 elapsed · 8:10 since entering band · 6:45 in band". The one the step's duration counts against is in **bold**: elapsed for no duration or a fixed-length duration, otherwise the matching band timer. An estimated band figure carries '≈'.
+
+The same line appears on the step page and on the home page's sub-tiles.
+
 #### Step controls
 
 Start, Pause/resume, Restart, Complete, Duplicate, Extend
 
-* Start: set the step to ‘in progress’ and allow the step’s alarms to trigger. If the duration is ‘fixed length’ start the timer running, if the duration is ‘in temperature band’ start counting time in temperature, if outside the temperature band show a ‘waiting for temperature’ indicator. Whether the instance is counting on live data or on assumption is shown throughout - see In-band accumulation. Once the step is started a tag name can be entered.  
+* Start: set the step to ‘in progress’ and allow the step’s alarms to trigger. If the duration is ‘fixed length’ start the timer running. If it is ‘time spent in band’ start counting time in temperature, and if outside the temperature band show a ‘waiting for temperature’ indicator. If it is ‘time since entering band’ show the same ‘waiting for temperature’ indicator until the reading first enters the band, then run the timer from that moment. Whether the instance is counting on live data or on assumption is shown throughout - see In-band accumulation. Once the step is started a tag name can be entered.  
 * Pause/resume: pause, then resume the timer. The step remains in progress while paused. Time alarms cannot trigger because the timer is not running, but temperature alarms can trigger because the step is in progress.  
 * Restart: reset the timer to zero and start it running again. The step remains in progress. Any time alarms that have already triggered can now trigger again, and so can any one-shot ("once") temperature alarm.  
 * Complete:  set the step to ‘not in progress’, no more of the step’s alarms will trigger.  
@@ -384,9 +398,11 @@ This gives four progress bar states, and they must be visually distinct:
 
 An instance with a 'fixed length' duration is always measured and always renders solid. Time is never in doubt.
 
+An instance with a 'time since entering band' duration is in these same states until the reading first enters the band (waiting for temperature, live or with no data). Once it has entered, its clock simply runs — leaving the band doesn't stop it — so from then on it renders solid like fixed length. The band entry follows the same rules as in-band accumulation: an instance that uses no probe assumes it is in the band from the start, so it enters at once; one whose probe hasn't reported yet waits for a real reading.
+
 ##### The estimate flag latches
 
-Once an instance has accumulated any in-band time while assumed, it is flagged as estimated for the rest of its life, even if it later regains the probe. Its accumulated total is partly assumption from then on and cannot be un-assumed. Show the flag next to the elapsed figure on the step page and on the home sub-tile - an '≈' marker is enough, with the reason available on the step page.
+Once an instance has accumulated any in-band time while assumed, it is flagged as estimated for the rest of its life, even if it later regains the probe. Its accumulated total is partly assumption from then on and cannot be un-assumed. For 'time since entering band' the figure is an estimate exactly when the band entry itself was assumed — after entry it is plain running time. Show the flag next to the estimated timer (see Step timers) on the step page and on the home sub-tile - an '≈' marker is enough, with the reason available on the step page.
 
 #### Pause
 
@@ -394,7 +410,7 @@ Pause: temperature alarms still fire, time alarms don't. In-band accumulation pa
 
 #### Restart
 
-Restart sets the accumulation to zero.
+Restart sets the accumulation to zero, and sets 'time since entering band' back to not yet entered.
 
 #### Time alarms and the duration-reached alarm run on the same clock as the progress bar
 
@@ -406,9 +422,14 @@ progress bar disagrees:
   of whether the step also has a temperature band. This is what "time is never in doubt" for a
   fixed-length duration means in practice — a temperature band on a fixed-length step drives its
   temperature alarms and band-boundary alarms, but has no say over its timing.
-* An **'in temperature band'** duration: the same in-band accumulation the progress bar shows.
+* A **'time spent in band'** duration: the same in-band accumulation the progress bar shows.
   Time spent out of band does not count towards a time alarm's trigger point or towards the
   duration-reached alarm, no matter how much wall-clock time has passed.
+* A **'time since entering band'** duration: running time since the band was first entered, the
+  same figure the progress bar shows. Nothing counts before the band is reached, and everything
+  (except pauses) counts after.
+
+Extend adds to the target on the same clock.
 
 Paused: neither clock advances, per Pause above.
 

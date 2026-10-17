@@ -1,7 +1,7 @@
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag, elapsedRunningMs, elapsedTotalMs, advanceInBand,
-  isMeasured, deriveProvenance, extendDuration, noInstancesInProgress,
+  isMeasured, deriveProvenance, extendDuration, noInstancesInProgress, durationBasisMs,
 } from './src/lib/instances.js';
 
 let pass = 0, fail = 0;
@@ -299,6 +299,65 @@ console.log('\nnoInstancesInProgress — completion tally auto-reset\'s "is the 
   ok('false when any instance is paused (paused still counts as in-progress)', noInstancesInProgress([
     { status: 'paused' },
   ]) === false);
+}
+
+console.log('\nTime since entering band: starts at the first in-band span, then counts every running span:');
+{
+  const start = () => startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  let i = start();
+  ok('a fresh instance has not entered the band', i.enteredBand === false && i.accumulatedSinceBandMs === 0);
+  i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 3000);
+  ok('measured out of band: not entered, nothing accrued', !i.enteredBand && i.accumulatedSinceBandMs === 0);
+  i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 5000);
+  ok('entering: the entering span counts for both clocks alike', i.enteredBand && i.accumulatedSinceBandMs === 2000 && i.accumulatedInBandMs === 2000);
+  ok('a measured entry is not an estimate', i.bandEntryAssumed === false);
+  i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 9000);
+  ok('leaving the band: time since entering keeps counting, time in band does not', i.accumulatedSinceBandMs === 6000 && i.accumulatedInBandMs === 2000);
+  i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 10000);
+  ok('re-entering does not restart it', i.accumulatedSinceBandMs === 7000);
+
+  i = pauseInstance(i, 10000);
+  i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 20000);
+  ok('frozen while paused', i.accumulatedSinceBandMs === 7000);
+  i = resumeInstance(i, 20000);
+  i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 21000);
+  ok('the paused span is excluded on resume', i.accumulatedSinceBandMs === 8000);
+
+  i = restartInstance(i, [], 30000);
+  ok('Restart resets it: not entered, nothing accrued, no estimate', !i.enteredBand && i.accumulatedSinceBandMs === 0 && !i.bandEntryAssumed);
+}
+
+console.log('\nTime since entering band follows the in-band rules when there is no live reading:');
+{
+  const start = () => startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  let u = advanceInBand(start(), { measured: false, inBand: true, claimed: false }, 4000);
+  ok('no probe at all: assumed in band at once, so it enters straight away…', u.enteredBand && u.accumulatedSinceBandMs === 4000);
+  ok('…and the entry is marked as an estimate', u.bandEntryAssumed === true);
+  u = advanceInBand(u, { measured: true, inBand: false, claimed: true }, 6000);
+  ok('a later real reading out of band does not undo the entry (or the estimate)', u.accumulatedSinceBandMs === 6000 && u.bandEntryAssumed === true);
+
+  let c = advanceInBand(start(), { measured: false, inBand: true, claimed: true }, 4000);
+  ok('a probe that has not reported yet: waits, does not assume entry', !c.enteredBand && c.accumulatedSinceBandMs === 0);
+}
+
+console.log('\nAn instance saved before these fields existed:');
+{
+  const legacy = { ...startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0), accumulatedInBandMs: 50000 };
+  delete legacy.accumulatedSinceBandMs; delete legacy.enteredBand; delete legacy.bandEntryAssumed;
+  const i = advanceInBand(legacy, { measured: true, inBand: true, claimed: true }, 1000);
+  ok('enters afresh on its next in-band tick, without NaN', i.enteredBand && i.accumulatedSinceBandMs === 1000 && i.accumulatedInBandMs === 51000);
+}
+
+console.log('\ndurationBasisMs — the one clock the bar, the alarms and Extend share:');
+{
+  let i = startInstance({ id: 'b', recipeId: 'r', stepId: 's', stepAlarmDefs: [] }, 0);
+  i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 3000);
+  i = advanceInBand(i, { measured: true, inBand: true, claimed: true }, 5000);
+  i = advanceInBand(i, { measured: true, inBand: false, claimed: true }, 8000);
+  ok('no duration: running time', durationBasisMs(i, null, 8000) === 8000);
+  ok('fixed length: running time', durationBasisMs(i, { kind: 'fixed', ms: 1 }, 8000) === 8000);
+  ok('time since entering band', durationBasisMs(i, { kind: 'sinceBand', ms: 1 }, 8000) === 5000);
+  ok('time spent in band', durationBasisMs(i, { kind: 'inBand', ms: 1 }, 8000) === 2000);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

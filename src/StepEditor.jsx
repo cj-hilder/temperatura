@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import TimeInput from "./TimeInput.jsx";
 import TemperatureInput from "./TemperatureInput.jsx";
-import { sortTimeAlarms, sortTempAlarms } from "./lib/recipe.js";
+import { sortTimeAlarms, sortTempAlarms, DURATION_KINDS, durationKindLabel, durationNeedsBand } from "./lib/recipe.js";
 import * as t from "./theme.js";
 
 const MIN_MS = 60_000;
@@ -129,8 +129,9 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
         <label style={t.label}>Duration</label>
         <select style={t.input} value={durationKind} onChange={(e) => setDurationKind(e.target.value)}>
           <option value="none">None</option>
-          <option value="fixed">Fixed length</option>
-          <option value="inBand">In temperature band</option>
+          {DURATION_KINDS.map((d) => (
+            <option key={d.kind} value={d.kind}>{d.label}</option>
+          ))}
         </select>
         {durationKind !== "none" && (
           <div style={{ marginTop: 6 }}>
@@ -160,8 +161,8 @@ export default function StepEditor({ engine, recipe, step, onDone, onDeleted }) 
             <ThemeSelect themes={themes} value={bandMaxTheme} onChange={setBandMaxTheme} />
           </div>
         )}
-        {durationKind === "inBand" && !tempBandOn && (
-          <p style={t.errorText}>An "in temperature band" duration needs a temperature band.</p>
+        {durationNeedsBand(durationKind) && !tempBandOn && (
+          <p style={t.errorText}>A "{durationKindLabel(durationKind).toLowerCase()}" duration needs a temperature band.</p>
         )}
 
         {durationKind !== "none" && (

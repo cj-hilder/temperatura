@@ -38,7 +38,7 @@ console.log('\nbuildRecipePrintHtml — a full recipe:');
   ok('includes every ingredient', html.includes('Flour') && html.includes('500 g') && html.includes('Water') && html.includes('350 g'));
   ok('includes the step name, numbered', html.includes('1. Bulk rise'));
   ok('includes the step description', html.includes('Let it double.'));
-  ok('includes the duration/band summary', html.includes('In temperature band duration') && html.includes('24') && html.includes('28'));
+  ok('includes the duration/band summary', html.includes('Time spent in band —') && html.includes('24') && html.includes('28'));
   ok('includes the implicit band-edge alarm lines', html.includes('Below band') && html.includes('Above band'));
   ok('includes the duration-reached alarm line', html.includes('Duration reached'));
 }

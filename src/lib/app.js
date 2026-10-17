@@ -7,7 +7,7 @@ import { validateRecipe, durationAlarmId } from "./recipe.js";
 import {
   startInstance, pauseInstance, resumeInstance, restartInstance, completeInstance,
   duplicateInstance, setTag as setInstanceTag, elapsedRunningMs, elapsedTotalMs,
-  advanceInBand, isMeasured, deriveProvenance, extendDuration,
+  advanceInBand, isMeasured, deriveProvenance, extendDuration, durationBasisMs,
   noInstancesInProgress,
 } from "./instances.js";
 import {
@@ -234,8 +234,7 @@ export function createAppController(deps = {}) {
   async function doExtendDuration(instanceId, extraMs, duration, isMissed = false) {
     const instance = await store.getInstance(instanceId);
     const alarmId = durationAlarmId(instance.stepId);
-    const currentTimeBasisMs =
-      duration.kind === "inBand" ? instance.accumulatedInBandMs : elapsedRunningMs(instance, now());
+    const currentTimeBasisMs = durationBasisMs(instance, duration, now());
     const updated = extendDuration(instance, extraMs, alarmId, {
       isMissed,
       originalDurationMs: duration.ms,
@@ -277,13 +276,8 @@ export function createAppController(deps = {}) {
     const advanced = advanceInBand(instance, { measured, inBand, claimed }, t);
     const running = advanced.status === "running";
     // Time/duration alarms must never disagree with the progress bar about
-    // when a duration is reached, so they share its exact basis: an
-    // "in temperature band" duration counts accumulatedInBandMs (same value
-    // the bar shows), everything else (no duration, or "fixed length", which
-    // the spec pins as always-measured/never-in-doubt regardless of any
-    // temperature band) counts plain running time.
-    const timeBasisMs =
-      duration?.kind === "inBand" ? advanced.accumulatedInBandMs : elapsedRunningMs(advanced, t);
+    // when a duration is reached, so they share its exact basis.
+    const timeBasisMs = durationBasisMs(advanced, duration, t);
     const { alarmState, newlyFired, sounding } = evaluateAlarms({
       stepAlarmDefs,
       hasTempInterest,

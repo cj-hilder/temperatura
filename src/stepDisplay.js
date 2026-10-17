@@ -1,4 +1,4 @@
-import { elapsedRunningMs, isMeasured, deriveProvenance } from "./lib/instances.js";
+import { elapsedRunningMs, isMeasured, deriveProvenance, durationBasisMs } from "./lib/instances.js";
 import { durationAlarmId, sortTimeAlarms, sortTempAlarms } from "./lib/recipe.js";
 import { formatDuration, formatRemaining, formatHMS } from "./lib/format.js";
 
@@ -85,21 +85,25 @@ export function computeStepProgress(instance, step, { probeFor }, now) {
   const readingValid = !!(latestSample && latestSample.probePresent && latestSample.tempC != null);
   const measured = isMeasured({ claimed, msSinceLastPacket, readingValid });
 
-  let elapsedMs;
+  const elapsedMs = durationBasisMs(instance, step.duration, now);
+  const liveInBand = () =>
+    measured
+      ? latestSample.tempC >= step.tempBand.lowC && latestSample.tempC <= step.tempBand.highC
+      : instance.lastKnownInBand;
   let provenance;
   if (step.duration.kind === "fixed") {
     // "An instance with a 'fixed length' duration is always measured and
     // always renders solid. Time is never in doubt." — reusing
     // "measured-in-band" here just means solid + advancing, the same visual
     // as a real in-band measurement; there's no temperature dimension to it.
-    elapsedMs = elapsedRunningMs(instance, now);
     provenance = "measured-in-band";
+  } else if (step.duration.kind === "sinceBand") {
+    // Before the band is first entered it is waiting exactly like an in-band
+    // step; once entered, the clock just runs — leaving the band doesn't stop
+    // it — so it reads solid, like fixed length.
+    provenance = instance.enteredBand ? "measured-in-band" : deriveProvenance({ measured, inBand: liveInBand() });
   } else {
-    elapsedMs = instance.accumulatedInBandMs;
-    const inBand = measured
-      ? latestSample.tempC >= step.tempBand.lowC && latestSample.tempC <= step.tempBand.highC
-      : instance.lastKnownInBand;
-    provenance = deriveProvenance({ measured, inBand });
+    provenance = deriveProvenance({ measured, inBand: liveInBand() });
   }
 
   // A temporary, per-instance "Extend" only ever moves the target further
@@ -122,10 +126,50 @@ export function computeStepProgress(instance, step, { probeFor }, now) {
     // still gets set internally (advanceInBand runs every tick regardless of
     // duration kind, since app.tick() doesn't know duration kind), but a
     // fixed-length step must never surface it.
-    latchedEstimate: step.duration.kind === "fixed" ? false : instance.latchedEstimate,
+    // A "since entering band" figure is an estimate exactly when the entry
+    // itself was assumed — after that it's plain running time.
+    latchedEstimate:
+      step.duration.kind === "fixed" ? false : step.duration.kind === "sinceBand" ? !!instance.bandEntryAssumed : instance.latchedEstimate,
     elapsedLabel: formatDuration(elapsedMs),
     remainingLabel: formatRemaining(remainingMs),
   };
+}
+
+/**
+ * The timers line under a running step: elapsed time alone for a step with
+ * no temperature band, or with a band all three — elapsed, time since
+ * entering the band, time spent in it — with the one the step's duration
+ * counts against in bold (elapsed for no duration or fixed length). Pure, so
+ * the step page and every tile show the same thing.
+ *
+ * @returns {Array<{key: string, text: string, bold: boolean, estimate: boolean}>}
+ */
+export function stepTimers(instance, step, now) {
+  const kind = step.duration?.kind ?? null;
+  const elapsed = {
+    key: "elapsed",
+    text: `${formatDuration(elapsedRunningMs(instance, now))} elapsed`,
+    bold: !!step.tempBand && kind !== "sinceBand" && kind !== "inBand",
+    estimate: false,
+  };
+  if (!step.tempBand) return [elapsed];
+  return [
+    elapsed,
+    {
+      key: "sinceBand",
+      // Before the band is reached there is no "since" yet — a 0:00 would
+      // read as if the reading had just arrived.
+      text: instance.enteredBand ? `${formatDuration(instance.accumulatedSinceBandMs ?? 0)} since entering band` : "band not reached yet",
+      bold: kind === "sinceBand",
+      estimate: !!instance.enteredBand && !!instance.bandEntryAssumed,
+    },
+    {
+      key: "inBand",
+      text: `${formatDuration(instance.accumulatedInBandMs)} in band`,
+      bold: kind === "inBand",
+      estimate: !!instance.latchedEstimate,
+    },
+  ];
 }
 
 // Visual mapping for the four provenance states (+ the always-solid fixed

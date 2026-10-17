@@ -57,11 +57,13 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
 ### Pure logic — no DOM, no clock, no BLE
 
 - **`recipe.js`** — recipe and step schema, validation, JSON import/export shaping.
-  Rejects invalid combinations, notably a duration marked *in temperature band* with no
-  temperature band defined.
+  Rejects invalid combinations, notably a band duration (*time since entering band* or *time
+  spent in band*) with no temperature band defined.
 - **`instances.js`** — the instance state machine. Start / Pause / Resume / Restart / Complete /
-  Duplicate, tag names, and the in-band accumulator. Every quantity derived from stored epoch
-  timestamps (`startedAt`, `pausedAt`, `accumulatedInBandMs`, `lastSampleAt`), never a tick
+  Duplicate, tag names, the in-band and since-entering-band accumulators, and `durationBasisMs`
+  (the one clock a duration counts against, shared by progress bar, alarms and Extend). Every
+  quantity derived from stored epoch timestamps (`startedAt`, `pausedAt`,
+  `accumulatedInBandMs`, `accumulatedSinceBandMs`, `lastSampleAt`), never a tick
   counter, so recovery after the app is killed is just arithmetic. (Which probe an instance
   uses lives in `assignment.js`, not here.)
 - **`assignment.js`** — probe assignment, pure. `{ [instanceId]: probeId }`, one-to-one:
