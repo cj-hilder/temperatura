@@ -20,4 +20,17 @@ self.TemperaturaCachePolicy = {
     const type = (response.headers.get("content-type") || "").toLowerCase();
     return !type.startsWith("text/html");
   },
+
+  // Whether a navigation is to the app itself (the SPA shell) rather than to
+  // one of the standalone pages beside it (privacy.html, terms.html, the
+  // OAuth popup's oauth-callback.html). The document route stores whatever a
+  // navigation returns as THE cached shell, so letting a standalone page
+  // through would make an offline launch open the privacy policy instead of
+  // the app. The OAuth popup is in this worker's scope, so it would do the
+  // same thing on every Connect. SPA routes never end in ".html", so an .html
+  // path other than index.html is always a standalone page.
+  isAppShellNavigation(pathname, base) {
+    if (pathname === base || pathname === base + "index.html") return true;
+    return !pathname.toLowerCase().endsWith(".html");
+  },
 };

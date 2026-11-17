@@ -2,7 +2,7 @@
 // it attaches itself to `self`, so point that at globalThis before loading it.
 globalThis.self = globalThis;
 await import('./public/sw-cache-policy.js');
-const { isCacheableAsset } = self.TemperaturaCachePolicy;
+const { isCacheableAsset, isAppShellNavigation } = self.TemperaturaCachePolicy;
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -31,6 +31,16 @@ console.log('\nisCacheableAsset — failures are never cached:');
   ok('404', !isCacheableAsset(res(404, 'text/javascript')));
   ok('500', !isCacheableAsset(res(500, 'text/javascript')));
   ok('no response at all', !isCacheableAsset(undefined));
+}
+
+console.log('\nisAppShellNavigation — only the app is stored as the cached shell:');
+{
+  ok('the root is the app', isAppShellNavigation('/', '/'));
+  ok('index.html is the app', isAppShellNavigation('/index.html', '/'));
+  ok('an SPA route with no extension is the app', isAppShellNavigation('/recipe/abc', '/'));
+  ok('privacy.html is not (an offline launch would open the policy)', !isAppShellNavigation('/privacy.html', '/'));
+  ok('terms.html is not', !isAppShellNavigation('/terms.html', '/'));
+  ok('the OAuth popup page is not, whatever its case', !isAppShellNavigation('/OAuth-Callback.HTML', '/'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -68,6 +68,9 @@ self.addEventListener("fetch", (event) => {
     // The HTML document / SPA navigations: NETWORK-FIRST so a fresh deploy is
     // seen at once; fall back to the cached shell only when offline.
     if (event.request.mode === "navigate" || url.pathname === BASE || url.pathname === BASE + "index.html") {
+      // Standalone pages go straight to the network, untouched: see
+      // isAppShellNavigation for why they must never reach networkFirstDoc.
+      if (!self.TemperaturaCachePolicy.isAppShellNavigation(url.pathname, BASE)) return;
       event.respondWith(networkFirstDoc(event.request));
       return;
     }

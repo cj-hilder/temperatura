@@ -26,6 +26,13 @@ export default function AboutPage({ onClose }) {
         <p style={{ fontSize: 12.5, color: t.colors.textMuted, marginTop: 24 }}>
           Made by Chris Hilder. MIT License.
         </p>
+        {/* Static pages in public/, opened in a new tab: navigating this window away
+            would unload the app, and with it any running step's alarms. */}
+        <p style={{ fontSize: 12.5, color: t.colors.textMuted }}>
+          <a href="/privacy.html" target="_blank" rel="noopener" style={{ color: "inherit" }}>Privacy Policy</a>
+          {" · "}
+          <a href="/terms.html" target="_blank" rel="noopener" style={{ color: "inherit" }}>Terms of Service</a>
+        </p>
         <p style={{ fontSize: 11, color: t.colors.textMuted }}>
           v{import.meta.env.VITE_APP_VERSION} · build {import.meta.env.VITE_BUILD_HASH} · {import.meta.env.VITE_BUILD_DATE}
         </p>

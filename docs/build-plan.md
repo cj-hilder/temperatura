@@ -121,6 +121,27 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
 - **`alarmPlayer.js`** — `decodeAudioData` on the keep-alive `AudioContext`, gain node with
   `linearRampToValueAtTime` on the first pass, buffer looping until silenced, fallback to the
   synthesised default tone on any decode failure.
+- **`driveBackup.js`** — Google Drive backup (spec, Storage → Google Drive backup). The pure
+  core takes `fetch`, `now` and a `getAccessToken()` function, and over the Drive v3 REST API
+  does list, upload (create or replace the day's auto file), download and prune in the
+  `appDataFolder`. It also owns the owed-backup state machine: the persisted `driveOwed`
+  flag, the 30 s quiet period, the 5 min retry floor, and the 24 h overdue flag that drives the
+  hamburger dot. No Google client library.
+- **`googleAuth.js`** — thin browser adapter. Connect opens Google's authorisation-code popup
+  by hand (`access_type=offline`, PKCE, `drive.appdata` scope), with no Google Identity
+  Services script. The popup lands on `/oauth-callback.html`, which `postMessage`s the code back
+  to the opener and closes. The PWA itself never navigates away, because a page with running
+  alarms must not unload. The refresh token is stored in the `settings` store. Access tokens
+  are held in memory and refreshed through the Worker.
+- **`worker/index.js`** — the only server code. It is stateless: `POST /api/google-token` takes
+  either `{ code, codeVerifier }` (exchange) or `{ refreshToken }` (refresh), adds the client
+  secret from the Worker's env, calls Google's token endpoint, and returns Google's response.
+  It stores nothing and logs no tokens. It rejects any `Origin` other than the app's own. It
+  exists only because Google's web-client token exchange needs the client secret, and a
+  refresh token is the only way to back up with no user gesture. The handler is a pure
+  `handleTokenRequest(request, env, fetch)`. A small Vite dev-server middleware in
+  `vite.config.js` serves the same handler at the same path, so `npm run dev` needs no
+  wrangler and no new dependency.
 - **`notify.js`** — the client half of the notification protocol: post to the SW when hidden,
   `navigator.vibrate` when visible, 5 s re-post loop with a stable per-alarm tag, and receive
   silence messages back from `notificationclick`.
@@ -212,6 +233,22 @@ Write in this order:
    a step is in progress), recipe delete cascade, backup/restore with and without a journal.
 10. `testswcache.mjs` — `public/sw-cache-policy.js`: never cache an HTML response as an asset
    (see §6), never cache a failure.
+11. `testdrive.mjs` — `driveBackup.js` against a fake `fetch`, a fake clock and a fake token
+   source. It covers:
+   - triggers: recipe create/edit/delete/import/journal-restore, journal add, notes edit and
+     journal delete mark a backup owed, and other changes don't
+   - 30 s quiet period: ten edits produce one upload
+   - the owed flag survives a simulated restart and uploads on start
+   - offline and Drive errors retry no faster than every 5 min
+   - overdue at 24 h
+   - the day's auto file is replaced, not duplicated
+   - pruning keeps 14 auto files and 10 manual ones, only after a successful upload, and a
+     failed upload deletes nothing
+   - a refused refresh token gives "needs reconnect" and stops retrying
+   - a Drive bundle round-trips through `importAll`
+
+   `testtoken.mjs` covers `handleTokenRequest`: exchange and refresh bodies carry the secret,
+   wrong-origin and malformed requests are refused, and Google's errors pass through.
 
 ---
 
@@ -268,6 +305,25 @@ so the browser's own HTTP-cache copy of the page is refreshed on every launch in
 freezing at whatever it held before the SW took over (the likeliest source of the stale page).
 And `index.html` carries an inline, rate-limited (once per 30 s per session) reload if its module
 script fails to load: the last line of defence when a stale page still gets through.
+
+**The Google token endpoint.** `wrangler.jsonc` gains `"main": "worker/index.js"` and
+`"assets": { ..., "run_worker_first": ["/api/*"] }`. Everything else is still served straight
+from `dist` as now. The SPA fallback must never answer `/api/*`, or a failed exchange would
+come back as a 200 of `index.html`. The client ID is public and goes in the client bundle as a
+build constant. The client secret is a Worker secret (`GOOGLE_CLIENT_SECRET`, set in the
+Cloudflare dashboard) and never appears in the repo or the bundle. For local dev the secret goes
+in `.env.development`, which is already uncommitted. The service worker must not touch
+`/api/*` or `/oauth-callback.html`. The second is HTML, so the cache policy already refuses it,
+but say so in `sw.js`.
+
+One-time Google setup (the developer's, never the user's): a Google Cloud project with the
+Drive API enabled, an OAuth consent screen with only the `drive.appdata` scope, **published to
+production**, and a Web OAuth client with `https://temperatura.hilderbuild.com` and
+`http://localhost:5173` as JavaScript origins, and `/oauth-callback.html` on each as redirect
+URIs. Production status matters for two reasons. In testing status only listed test users can
+sign in, and refresh tokens expire after 7 days, which would silently stop automatic backup
+every week. `drive.appdata` is a non-sensitive scope, so publishing it should not need Google's
+app review.
 
 `_headers` is not needed. Manawa Pace only has one to serve its README as markdown.
 

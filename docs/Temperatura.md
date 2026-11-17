@@ -75,13 +75,36 @@ The "Export as PDF" action (see below) reflects whatever multiplier is currently
 
 ## Storage
 
-IndexedDB as source of truth, "Open" means pick from a stored list. Plus JSON import/export of individual recipes as well as backup/restore all saved data. RTW's model, which is already working in storage.js
+IndexedDB as source of truth, "Open" means pick from a stored list. Plus JSON import/export of individual recipes as well as backup/restore all saved data, to a file or to Google Drive (below). RTW's model, which is already working in storage.js
 
 The set of open recipes is itself persisted, and is restored when the app restarts. It has to be: a running instance recovered after the app was killed belongs to a recipe, and without that recipe being open there would be no tile to display the instance under.
 
 A recipe with one or more running instances is force-open. Its close button still appears, but tapping it warns the user that closing will complete all running instances of that recipe's steps, and closes only on confirmation.
 
 Closing a recipe also clears its completion tallies (see "Completion tallies" under Recipe page) — they don't survive a close/reopen, so reopening a closed recipe always starts every step's tick count at zero.
+
+### Google Drive backup
+
+Everything is backed up to the user's own Google Drive automatically. The backups can be restored on this phone or on another one. The user needs only the Google account they already have. They tap **Connect**, pick that account and approve. There is no new account and nothing else to set up. This is backup, **not sync**: nothing merges by itself, two phones never share live state, and IndexedDB stays the source of truth on each device.
+
+**What is stored.** Every Drive backup holds exactly the same bundle as the downloaded backup file (`format: "temperatura/backup"`), so a Drive backup and a file backup can always be swapped for each other. The files go in the app's own hidden **appDataFolder** on the user's Drive. The app asks only for the `drive.appdata` scope. It cannot see or change any other file in the user's Drive, and the user's normal Drive view doesn't show these files.
+
+**Connecting.** Settings has a **Google Drive** section. **Connect** opens Google's sign-in and consent popup from the tap. That is the only time the user is asked anything. From then on, backups happen with no taps and no popups, and they keep working after the app is killed or the phone is restarted. **Disconnect** revokes the app's access and forgets it on this device. It does not delete the backups already on Drive. The section also shows the connected account, the time of the last successful backup, and the last error if the most recent attempt failed.
+
+**Automatic backup.** These trigger a backup:
+
+* a recipe is created, edited, deleted or imported, or restored from its journal
+* a journal entry is added, has its notes edited, or is deleted
+
+A recipe edit is many small saves, so the backup runs once the changes have stopped for 30 seconds, not on every save. "A backup is owed" is stored in IndexedDB at the moment of the change, not held in memory. So if the app is killed, the phone is offline, or Drive is unreachable, the owed backup still happens: on the next app start, when the phone comes back online, or when the app is next made visible. It retries at most every 5 minutes. A failed backup never touches local data. While an owed backup fails, no alarm sounds and nothing interrupts the user. Settings shows the error, and the hamburger icon gets a dot once a change has gone unbacked-up for 24 hours.
+
+**Manual backup.** Tapping Backup in the hamburger menu offers **Download file** and, when connected, **Back up to Google Drive now**.
+
+**Keeping.** Automatic backups are one file per day (`temperatura-auto-YYYY-MM-DD.json`), replaced by each later backup that day. The last 14 days are kept. Manual Drive backups (`temperatura-backup-YYYY-MM-DD-HHMM.json`) are kept separately, newest 10. Old files are deleted only after a new backup has uploaded successfully. A bad edit made today therefore can't push out yesterday's good copy.
+
+**If access is lost.** If Google refuses the stored authorisation (the user revoked it in their Google account, or it expired), automatic backup stops. Settings shows **Reconnect** in place of Connect, and the hamburger dot appears straight away. Reconnecting uploads the owed backup.
+
+**Restore.** Restore offers **From a file** and, when connected, **From Google Drive**. The Drive choice lists the backups newest first, each marked automatic or manual, with its date and time and its recipe count. Picking one uses the same merge / overwrite choice as a file restore, with the same confirm. On a new phone, the user connects to the same Google account first, then restores. Restoring running instances onto a second phone makes them run there too, alarms included, exactly as a file restore already does. The original phone is not told. The restore confirm says so when the backup contains running instances.
 
 ### Export as PDF
 
