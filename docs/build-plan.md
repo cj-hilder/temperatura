@@ -139,7 +139,9 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   It stores nothing and logs no tokens. It rejects any `Origin` other than the app's own. It
   exists only because Google's web-client token exchange needs the client secret, and a
   refresh token is the only way to back up with no user gesture. The handler is a pure
-  `handleTokenRequest(request, env, fetch)`. A small Vite dev-server middleware in
+  `handleTokenRequest(request, { clientSecret, fetch })` in `src/lib/googleToken.js`, so it
+  is tested in Node like every other module. `worker/index.js` only routes to it. The client ID,
+  scope and callback path are constants in `src/lib/googleClient.js`. A small Vite dev-server middleware in
   `vite.config.js` serves the same handler at the same path, so `npm run dev` needs no
   wrangler and no new dependency.
 - **`notify.js`** — the client half of the notification protocol: post to the SW when hidden,
