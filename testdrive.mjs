@@ -13,6 +13,9 @@ import {
 import { createAppController } from './src/lib/app.js';
 import { MemoryBackend, Store } from './src/lib/storage.js';
 import { createBlankRecipe } from './src/lib/recipe.js';
+import { createPkce, buildAuthUrl, parseCallback, exchangeCode } from './src/lib/googleAuth.js';
+import { GOOGLE_CLIENT_ID, DRIVE_SCOPE } from './src/lib/googleClient.js';
+import { webcrypto, createHash } from 'node:crypto';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('  PASS ' + n)) : (fail++, console.log('  FAIL ' + n + '  ' + d)); };
@@ -435,6 +438,41 @@ console.log('\nround trip — a Drive backup restores exactly like a backup file
   const snd = new Uint8Array(await fresh.getSound(theme.id));
   ok('sound bytes restored exactly', snd.length === 4 && snd[3] === 250);
   void r;
+}
+
+console.log('\nConnect — PKCE and the sign-in URL:');
+{
+  const a = await createPkce(webcrypto), b = await createPkce(webcrypto);
+  ok('verifier: 43 url-safe chars (RFC 7636 minimum)', /^[A-Za-z0-9_-]{43}$/.test(a.verifier), a.verifier);
+  const expected = createHash('sha256').update(a.verifier).digest('base64url');
+  ok('challenge is the S256 of the verifier', a.challenge === expected);
+  ok('fresh verifier and state each time', a.verifier !== b.verifier && a.state !== b.state);
+  const u = new URL(buildAuthUrl({ origin: 'https://temperatura.hilderbuild.com', challenge: a.challenge, state: a.state }));
+  const q = u.searchParams;
+  ok('Google\'s auth endpoint', u.origin + u.pathname === 'https://accounts.google.com/o/oauth2/v2/auth');
+  ok('our client id, code flow', q.get('client_id') === GOOGLE_CLIENT_ID && q.get('response_type') === 'code');
+  ok('only the drive.appdata scope', q.get('scope') === DRIVE_SCOPE);
+  ok('offline + consent, so a refresh token is always issued (Reconnect too)', q.get('access_type') === 'offline' && q.get('prompt') === 'consent');
+  ok('S256 challenge and state carried', q.get('code_challenge') === a.challenge && q.get('code_challenge_method') === 'S256' && q.get('state') === a.state);
+  ok('redirect to the registered callback page', q.get('redirect_uri') === 'https://temperatura.hilderbuild.com/oauth-callback.html');
+  ok('parseCallback: code and state', JSON.stringify(parseCallback('?code=c1&state=s1&scope=x')) === JSON.stringify({ code: 'c1', state: 's1', error: null }));
+  ok('parseCallback: access_denied', parseCallback('?error=access_denied&state=s1').error === 'access_denied');
+}
+
+console.log('\nConnect — the exchange result is checked before it is trusted:');
+{
+  const answer = (status, body) => async (url, init) => { answer.last = { url, body: JSON.parse(init.body) }; return jsonRes(status, body); };
+  let fetch = answer(200, { access_token: 'at', refresh_token: 'rt', expires_in: 3599, scope: DRIVE_SCOPE });
+  const r = await exchangeCode({ fetch, code: 'c', verifier: 'v' });
+  ok('posts code + verifier to our endpoint', answer.last.url === '/api/google-token' && answer.last.body.code === 'c' && answer.last.body.codeVerifier === 'v');
+  ok('returns the refresh token', r.refreshToken === 'rt' && r.accessToken === 'at');
+  const fails = async (f) => { try { await exchangeCode({ fetch: f, code: 'c', verifier: 'v' }); } catch (e) { return e; } };
+  const unticked = await fails(answer(200, { access_token: 'at', refresh_token: 'rt', scope: 'openid' }));
+  ok('Drive box unticked on the consent screen → auth, saying to leave it ticked', unticked?.kind === 'auth' && /ticked/.test(unticked.message));
+  ok('no refresh token → error, not a half-connected state', (await fails(answer(200, { access_token: 'at', scope: DRIVE_SCOPE })))?.kind === 'other');
+  ok('Google rejects the code → error with Google\'s reason', /bad code/.test((await fails(answer(400, { error: 'invalid_grant', error_description: 'bad code' })))?.message));
+  ok('endpoint not configured → server', (await fails(answer(500, { error: 'not_configured' })))?.kind === 'server');
+  ok('offline → offline', (await fails(async () => { throw new TypeError('Failed to fetch'); }))?.kind === 'offline');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

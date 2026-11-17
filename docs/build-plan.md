@@ -127,12 +127,23 @@ as `IndexedDBBackend` / `MemoryBackend`. `App.jsx` holds the UI and calls a cont
   `appDataFolder`. It also owns the owed-backup state machine: the persisted `driveOwed`
   flag, the 30 s quiet period, the 5 min retry floor, and the 24 h overdue flag that drives the
   hamburger dot. No Google client library.
-- **`googleAuth.js`** — thin browser adapter. Connect opens Google's authorisation-code popup
-  by hand (`access_type=offline`, PKCE, `drive.appdata` scope), with no Google Identity
-  Services script. The popup lands on `/oauth-callback.html`, which `postMessage`s the code back
-  to the opener and closes. The PWA itself never navigates away, because a page with running
-  alarms must not unload. The refresh token is stored in the `settings` store. Access tokens
-  are held in memory and refreshed through the Worker.
+- **`googleAuth.js`**: Connect. It opens Google's authorisation-code popup by hand
+  (`access_type=offline`, `prompt=consent`, PKCE, `drive.appdata` scope), with no Google
+  Identity Services script. The PKCE, URL, callback-parsing and exchange-checking parts are
+  pure and tested in `testdrive.mjs`.
+  - The popup lands on `public/oauth-callback.html`. It hands the code back by `postMessage`,
+    by `BroadcastChannel` and through localStorage. All three are needed because Google's
+    sign-in page cuts the popup off from the app (Cross-Origin-Opener-Policy), and on Android
+    an installed app may open it as a separate Chrome tab. The app re-checks localStorage
+    whenever it becomes visible. "Popup closed" can't be detected reliably, so Settings offers
+    Cancel.
+  - The PWA itself never navigates away, because a page with running alarms must not unload.
+  - The refresh token is stored in the `settings` store. Access tokens are held in memory only.
+- **`src/driveSync.js`** (`useDriveBackup`): browser wiring, created once by `engine.js`. It
+  sets the controller's backup listener, and pokes the scheduler on app start, on `online`,
+  when the app becomes visible, and once a minute (for the 24 h dot). UI: `DriveSection.jsx`
+  (Settings), the Backup / Restore choices and the shared restore confirm in
+  `HamburgerMenu.jsx`, and `MenuButton.jsx` (the ☰ dot).
 - **`worker/index.js`** — the only server code. It is stateless: `POST /api/google-token` takes
   either `{ code, codeVerifier }` (exchange) or `{ refreshToken }` (refresh), adds the client
   secret from the Worker's env, calls Google's token endpoint, and returns Google's response.

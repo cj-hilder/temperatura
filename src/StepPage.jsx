@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MenuButton from "./MenuButton.jsx";
 import StepEditor from "./StepEditor.jsx";
 import CurrentTemperatureLine from "./CurrentTemperatureLine.jsx";
 import { ProbesButton, ProbeChooser } from "./ProbeUi.jsx";
@@ -165,7 +166,7 @@ export default function StepPage({ engine, recipeId, stepId, initialInstanceId, 
             🌡️
           </button>
         )}
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
+        <MenuButton engine={engine} onOpenMenu={onOpenMenu} />
         <div style={t.spacer} />
         <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>

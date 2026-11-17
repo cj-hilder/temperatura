@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { recipeToExportJSON, recipeFromImportJSON } from "./lib/recipe.js";
 import { buildRecipePrintHtml } from "./recipePrint.js";
 import * as t from "./theme.js";
+import { formatWhen } from "./DriveSection.jsx";
+import { messageFor } from "./lib/driveBackup.js";
 
 // Browser download primitive shared by every export action here — Blob +
 // object URL + a programmatically clicked <a download>, then revoke. No
@@ -20,8 +22,12 @@ function downloadJSON(filename, data) {
 const todayStamp = () => new Date().toISOString().slice(0, 10);
 
 export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClose, onOpenSettings, onOpenHelp, onOpenAbout }) {
-  const { app, refresh } = engine;
-  const [expanded, setExpanded] = useState(null); // null | "export" | "print" | "restore"
+  const { app, refresh, drive } = engine;
+  const driveConnected = !!drive.status?.connected && !drive.status?.needsReconnect;
+  const [expanded, setExpanded] = useState(null); // null | "export" | "print" | "backup" | "restore"
+  const [driveBackups, setDriveBackups] = useState(null); // null (not loaded) | "loading" | list
+  const [pendingRestore, setPendingRestore] = useState(null); // { bundle, label } awaiting confirm
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null); // { text, error } | null
   const [pickerRecipes, setPickerRecipes] = useState([]);
   const [restoreMode, setRestoreMode] = useState("merge");
@@ -113,33 +119,98 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
     }
   };
 
-  const backup = async () => {
+  const downloadBackup = async () => {
     setMessage(null);
     const bundle = await app.store.exportAll();
     downloadJSON(`temperatura-backup-${todayStamp()}.json`, bundle);
     say("Backup downloaded.");
+    setExpanded(null);
+  };
+
+  // With Drive connected, Backup offers both destinations. Without it, a tap
+  // downloads straight away, as it always has.
+  const handleBackupClick = () => {
+    setMessage(null);
+    if (driveConnected) setExpanded(expanded === "backup" ? null : "backup");
+    else downloadBackup();
+  };
+
+  const backupToDrive = async () => {
+    setMessage(null);
+    setBusy(true);
+    try {
+      const res = await drive.backupNow();
+      if (res?.ok) { say(`Backed up to Google Drive ${formatWhen(res.at)}.`); setExpanded(null); }
+      else say(res?.error?.message ? res.error.message : "Backup to Google Drive failed.", true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Every restore, from a file or from Drive, goes through one confirm. It
+  // says how much is coming in, and warns when the backup holds running
+  // steps: they will run on THIS phone too, alarms included, and the phone
+  // they came from is never told.
+  const askToRestore = (bundle, label) => {
+    if (!bundle || bundle.format !== "temperatura/backup") return say("Not a Temperatura backup file.", true);
+    setPendingRestore({ bundle, label });
+  };
+
+  const confirmRestore = async () => {
+    const { bundle } = pendingRestore;
+    setBusy(true);
+    try {
+      await app.store.importAll(bundle, restoreMode);
+      await refresh();
+      say("Restore complete.");
+      setPendingRestore(null);
+      setExpanded(null);
+    } catch (e) {
+      say(`Couldn't restore: ${e.message}`, true);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleRestoreFile = async (file) => {
     setMessage(null);
     try {
-      const bundle = JSON.parse(await file.text());
-      await app.store.importAll(bundle, restoreMode);
-      await refresh();
-      say("Restore complete.");
-      setExpanded(null);
+      askToRestore(JSON.parse(await file.text()), `the file "${file.name}"`);
     } catch (e) {
-      say(`Couldn't restore that file: ${e.message}`, true);
+      say(`Couldn't read that file: ${e.message}`, true);
+    }
+  };
+
+  const showDriveBackups = async () => {
+    setMessage(null);
+    setDriveBackups("loading");
+    try {
+      setDriveBackups(await drive.listBackups());
+    } catch (e) {
+      setDriveBackups(null);
+      say(e?.kind ? messageFor(e) : e.message, true);
+    }
+  };
+
+  const restoreFromDrive = async (entry) => {
+    setMessage(null);
+    setBusy(true);
+    try {
+      askToRestore(await drive.downloadBackup(entry.id), `the ${entry.kind === "auto" ? "automatic" : "manual"} backup from ${formatWhen(entry.exportedAt)}`);
+    } catch (e) {
+      say(`Couldn't fetch that backup: ${e.message}`, true);
+    } finally {
+      setBusy(false);
     }
   };
 
   const ROWS = [
-    { label: "Settings", onClick: onOpenSettings },
+    { label: "Settings", onClick: onOpenSettings, note: drive.status?.attention ? "Google Drive backup needs attention" : null },
     { label: "Import", onClick: () => { setMessage(null); importRef.current.click(); } },
     { label: "Export", onClick: handleExportClick },
     { label: "Export as PDF", onClick: handlePrintClick },
-    { label: "Backup", onClick: backup },
-    { label: "Restore", onClick: () => { setMessage(null); setExpanded(expanded === "restore" ? null : "restore"); } },
+    { label: "Backup", onClick: handleBackupClick },
+    { label: "Restore", onClick: () => { setMessage(null); setPendingRestore(null); setDriveBackups(null); setExpanded(expanded === "restore" ? null : "restore"); } },
     { label: "Help", onClick: onOpenHelp },
     { label: "About", onClick: onOpenAbout },
   ];
@@ -152,7 +223,16 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
           <div key={row.label}>
             <div style={{ padding: "12px 0", borderBottom: `1px solid ${t.colors.border}`, cursor: "pointer" }} onClick={row.onClick}>
               {row.label}
+              {row.note && <div style={{ ...t.errorText, marginTop: 2, fontSize: 12 }}>{row.note}</div>}
             </div>
+            {row.label === "Backup" && expanded === "backup" && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "4px 0 10px 12px" }}>
+                <button style={t.smallButton} onClick={downloadBackup}>Download file</button>
+                <button style={busy ? { ...t.smallButton, ...t.disabledButton } : t.smallButton} disabled={busy} onClick={backupToDrive}>
+                  {busy ? "Backing up…" : "Back up to Google Drive now"}
+                </button>
+              </div>
+            )}
             {row.label === "Export" && expanded === "export" && (
               <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px" }}>
                 {pickerRecipes.map((r) => (
@@ -187,7 +267,31 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
                   <input type="radio" checked={restoreMode === "replace"} onChange={() => setRestoreMode("replace")} />
                   Overwrite matching items with the backup's version
                 </label>
-                <button style={{ ...t.smallButton, marginTop: 8 }} onClick={() => restoreRef.current.click()}>Choose backup file</button>
+                {pendingRestore ? (
+                  <RestoreConfirm pending={pendingRestore} mode={restoreMode} busy={busy} onConfirm={confirmRestore} onCancel={() => setPendingRestore(null)} />
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      <button style={t.smallButton} onClick={() => restoreRef.current.click()}>Choose backup file</button>
+                      {driveConnected && <button style={t.smallButton} onClick={showDriveBackups}>From Google Drive</button>}
+                    </div>
+                    {driveBackups === "loading" && <p style={{ fontSize: 12.5, color: t.colors.textMuted }}>Loading backups…</p>}
+                    {Array.isArray(driveBackups) && (
+                      <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+                        {driveBackups.length === 0 && <li style={{ fontSize: 13, color: t.colors.textMuted }}>No backups on Google Drive yet.</li>}
+                        {driveBackups.map((b) => (
+                          <li key={b.id} style={{ padding: "7px 0", cursor: busy ? "default" : "pointer", fontSize: 13.5, borderTop: `1px solid ${t.colors.border}` }} onClick={() => !busy && restoreFromDrive(b)}>
+                            {formatWhen(b.exportedAt)}
+                            <span style={{ color: t.colors.textMuted, fontSize: 12.5 }}>
+                              {" "}· {b.kind === "auto" ? "automatic" : "manual"}
+                              {b.recipeCount != null && ` · ${b.recipeCount} recipe${b.recipeCount === 1 ? "" : "s"}`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -201,6 +305,32 @@ export default function HamburgerMenu({ engine, currentRecipeId, navigate, onClo
         <input ref={restoreRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files[0] && handleRestoreFile(e.target.files[0])} />
 
         <button style={{ ...t.secondaryButton, marginTop: 12, width: "100%" }} onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+function RestoreConfirm({ pending, mode, busy, onConfirm, onCancel }) {
+  const { bundle, label } = pending;
+  const recipes = bundle.recipes?.length ?? 0;
+  const running = (bundle.instances ?? []).filter((i) => i.status !== "completed").length;
+  return (
+    <div style={{ ...t.card, marginTop: 8 }}>
+      <div style={{ fontSize: 13.5 }}>
+        Restore {recipes} recipe{recipes === 1 ? "" : "s"} from {label}?
+      </div>
+      <div style={{ fontSize: 12.5, color: t.colors.textMuted, marginTop: 4 }}>
+        {mode === "merge" ? "Anything already on this phone is kept." : "Matching items on this phone are overwritten."}
+      </div>
+      {running > 0 && (
+        <div style={{ ...t.errorText, fontSize: 12.5 }}>
+          This backup has {running} step{running === 1 ? "" : "s"} in progress. {running === 1 ? "It" : "They"} will run on this phone too, alarms
+          included. The phone it was backed up from isn't told.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={t.secondaryButton} onClick={onCancel}>Cancel</button>
+        <button style={busy ? { ...t.primaryButton, ...t.disabledButton } : t.primaryButton} disabled={busy} onClick={onConfirm}>Restore</button>
       </div>
     </div>
   );

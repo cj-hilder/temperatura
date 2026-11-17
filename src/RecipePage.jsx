@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MenuButton from "./MenuButton.jsx";
 import RecipeEditor from "./RecipeEditor.jsx";
 import { ProbesButton, ProbeTemperatureLines } from "./ProbeUi.jsx";
 import { formatDuration } from "./lib/format.js";
@@ -121,7 +122,7 @@ export default function RecipePage({ engine, recipeId, initialEditing, initialCo
       <div style={t.iconRow}>
         <button style={t.iconButton} title="Home" onClick={() => navigate({ view: "home" })}>⌂</button>
         <button style={t.iconButton} title="Edit" onClick={() => setEditing(true)}>✎</button>
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
+        <MenuButton engine={engine} onOpenMenu={onOpenMenu} />
         <div style={t.spacer} />
         <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>

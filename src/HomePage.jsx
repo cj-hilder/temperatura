@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MenuButton from "./MenuButton.jsx";
 import { createBlankRecipe } from "./lib/recipe.js";
 import InstanceRow from "./InstanceRow.jsx";
 import { FolderIcon, SearchIcon } from "./icons.jsx";
@@ -53,7 +54,7 @@ export default function HomePage({ engine, navigate, onOpenMenu, onOpenProbes })
         <button style={t.iconButton} title="Open a recipe" onClick={() => setPicker("open")}><FolderIcon /></button>
         <button style={t.iconButton} title="New recipe" onClick={handleNew}>＋</button>
         <button style={t.iconButton} title="Search" onClick={() => setPicker("search")}><SearchIcon /></button>
-        <button style={t.iconButton} title="Menu" onClick={onOpenMenu}>☰</button>
+        <MenuButton engine={engine} onOpenMenu={onOpenMenu} />
         <div style={t.spacer} />
         <ProbesButton engine={engine} onOpen={onOpenProbes} />
       </div>

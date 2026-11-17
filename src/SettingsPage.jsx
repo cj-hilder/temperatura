@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { decodeSound, isSoundTooLong, MAX_SOUND_SECONDS, playAlarm, stopAlarm } from "./lib/alarmPlayer.js";
 import { formatDuration } from "./lib/format.js";
 import TimeInput from "./TimeInput.jsx";
+import DriveSection from "./DriveSection.jsx";
 import * as t from "./theme.js";
 
 // A stable tag for the one preview voice Settings ever plays — only one
@@ -89,6 +90,8 @@ export default function SettingsPage({ engine, onClose }) {
           </div>
           <input type="checkbox" checked={sixths} onChange={(e) => changeSixths(e.target.checked)} />
         </div>
+
+        <DriveSection engine={engine} />
 
         <h3>Alarm themes</h3>
         {defaultTheme && (

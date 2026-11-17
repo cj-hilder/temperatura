@@ -10,6 +10,7 @@ import { createNotifyRouter } from "./lib/notify.js";
 import { buildStepAlarmDefs, durationAlarmId } from "./lib/recipe.js";
 import { earliestOutstandingAcrossInstances, themeIdForAlarmId, DATA_LOSS_ALARM_ID } from "./lib/alarms.js";
 import { alarmName, alarmNotifyBody } from "./stepDisplay.js";
+import { useDriveBackup } from "./driveSync.js";
 
 // Promotes AlarmDemo.jsx's wiring (keep-alive, thermometer, tick loop,
 // alarmPlayer, notify) from one hardcoded fake instance to every real running
@@ -55,6 +56,9 @@ export function useAppEngine() {
     appRef.current = createAppController({ backend: new IndexedDBBackend() });
   }
   const app = appRef.current;
+  // Before anything can change a recipe: this sets the controller's backup
+  // listener (see app.js, backupWorthy).
+  const drive = useDriveBackup(app);
 
 
   const routerRef = useRef(null);
@@ -606,6 +610,7 @@ export function useAppEngine() {
 
   return {
     app,
+    drive,
     refresh,
     keepAliveStarted,
     startKeepAlive,
