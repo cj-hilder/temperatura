@@ -89,18 +89,20 @@ Everything is backed up to the user's own Google Drive automatically. The backup
 
 **What is stored.** Every Drive backup holds exactly the same bundle as the downloaded backup file (`format: "temperatura/backup"`), so a Drive backup and a file backup can always be swapped for each other. The files go in the app's own hidden **appDataFolder** on the user's Drive. The app asks only for the `drive.appdata` scope. It cannot see or change any other file in the user's Drive, and the user's normal Drive view doesn't show these files.
 
-**Connecting.** Settings has a **Google Drive** section. **Connect** opens Google's sign-in and consent popup from the tap. That is the only time the user is asked anything. From then on, backups happen with no taps and no popups, and they keep working after the app is killed or the phone is restarted. **Disconnect** revokes the app's access and forgets it on this device. It does not delete the backups already on Drive. The section also shows the connected account, the time of the last successful backup, and the last error if the most recent attempt failed.
+**Connecting.** Settings has a **Google Drive** section. **Connect** opens Google's sign-in and consent popup from the tap. That is the only time the user is asked anything. A successful Connect makes a first backup straight away, so Drive never sits empty. From then on, backups happen with no taps and no popups, and they keep working after the app is killed or the phone is restarted. **Disconnect** revokes the app's access and forgets it on this device. It does not delete the backups already on Drive. The section also shows the connected account, the time of the last successful backup, and the last error if the most recent attempt failed.
 
 **Automatic backup.** These trigger a backup:
 
 * a recipe is created, edited, deleted or imported, or restored from its journal
 * a journal entry is added, has its notes edited, or is deleted
 
+Restoring a backup (from a file or from Drive) is not itself a trigger. A manual "Back up to Google Drive now" also clears an owed backup, since it holds the same data.
+
 A recipe edit is many small saves, so the backup runs once the changes have stopped for 30 seconds, not on every save. "A backup is owed" is stored in IndexedDB at the moment of the change, not held in memory. So if the app is killed, the phone is offline, or Drive is unreachable, the owed backup still happens: on the next app start, when the phone comes back online, or when the app is next made visible. It retries at most every 5 minutes. A failed backup never touches local data. While an owed backup fails, no alarm sounds and nothing interrupts the user. Settings shows the error, and the hamburger icon gets a dot once a change has gone unbacked-up for 24 hours.
 
 **Manual backup.** Tapping Backup in the hamburger menu offers **Download file** and, when connected, **Back up to Google Drive now**.
 
-**Keeping.** Automatic backups are one file per day (`temperatura-auto-YYYY-MM-DD.json`), replaced by each later backup that day. The last 14 days are kept. Manual Drive backups (`temperatura-backup-YYYY-MM-DD-HHMM.json`) are kept separately, newest 10. Old files are deleted only after a new backup has uploaded successfully. A bad edit made today therefore can't push out yesterday's good copy.
+**Keeping.** Automatic backups are one file per day (`temperatura-auto-YYYY-MM-DD.json`, by the phone's local date), replaced by each later backup that day. The newest 14 of these daily files are kept. Days with no changes make no file, so the 14 can cover more than two weeks. Manual Drive backups (`temperatura-backup-YYYY-MM-DD-HHMM.json`) are kept separately, newest 10. Old files are deleted only after a new backup has uploaded successfully. A bad edit made today therefore can't push out yesterday's good copy.
 
 **If access is lost.** If Google refuses the stored authorisation (the user revoked it in their Google account, or it expired), automatic backup stops. Settings shows **Reconnect** in place of Connect, and the hamburger dot appears straight away. Reconnecting uploads the owed backup.
 

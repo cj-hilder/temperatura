@@ -59,17 +59,37 @@ export function createAppController(deps = {}) {
   const store = new Store({ backend, uuid: deps.uuid });
   const now = deps.now || (() => Date.now());
 
+  // ---- Backup-worthy changes ----
+  // The spec's Drive-backup triggers are a recipe created, edited, deleted,
+  // imported or restored from its journal, and a journal entry added, its
+  // notes edited, or deleted. Every one of them goes through this controller,
+  // so they are marked here, in one place, after the change is saved. Marking
+  // in the UI instead would mean one forgotten call site silently stops
+  // backups. The listener is set late (setBackupListener) because the
+  // scheduler is built from this controller's own store.
+  let backupListener = deps.onBackupWorthyChange || null;
+  const setBackupListener = (fn) => { backupListener = fn; };
+  async function backupWorthy(result) {
+    // A failure to mark must never fail the user's save. The edit itself is
+    // already safely stored, so log it and move on.
+    if (backupListener) {
+      try { await backupListener(); } catch (e) { console.warn("Drive backup: couldn't mark a change", e); }
+    }
+    return result;
+  }
+
   // ---- Recipes / open set ----
 
-  const createRecipe = (recipe) => store.createRecipe(recipe);
+  const createRecipe = async (recipe) => backupWorthy(await store.createRecipe(recipe));
   const getRecipe = (id) => store.getRecipe(id);
   const listRecipes = () => store.listRecipes();
-  const updateRecipe = (id, patch) => store.updateRecipe(id, patch);
+  const updateRecipe = async (id, patch) => backupWorthy(await store.updateRecipe(id, patch));
   const deleteRecipe = async (id) => {
     const instances = await store.listInstancesForRecipe(id);
     await store.deleteRecipe(id);
     await releaseInstances(instances.map((i) => i.id));
     await clearGraphs(instances.map((i) => i.id));
+    await backupWorthy();
   };
   const openRecipe = (id) => store.openRecipe(id);
   const listOpenRecipeIds = () => store.listOpenRecipeIds();
@@ -105,7 +125,7 @@ export function createAppController(deps = {}) {
       notes,
     };
     await store.addJournalEntry(entry);
-    return entry;
+    return backupWorthy(entry);
   }
 
   const listJournal = (recipeId) => store.listJournal(recipeId);
@@ -115,9 +135,9 @@ export function createAppController(deps = {}) {
     if (!entry) return null;
     const updated = { ...entry, notes };
     await store.updateJournalEntry(updated);
-    return updated;
+    return backupWorthy(updated);
   }
-  const deleteJournalEntry = (id) => store.deleteJournalEntry(id);
+  const deleteJournalEntry = async (id) => backupWorthy(await store.deleteJournalEntry(id));
 
   /**
    * Puts the recipe back as it was in a journal entry. The version being
@@ -134,7 +154,7 @@ export function createAppController(deps = {}) {
     if (running) throw new Error("Finish or complete the recipe's running steps before restoring an earlier version.");
     await recordJournal(entry.recipeId, { notes: "Recorded automatically before restoring an earlier version." });
     const { name, description, notes, servings, ingredients, steps } = entry.recipe;
-    return store.updateRecipe(entry.recipeId, { name, description, notes, servings, ingredients, steps });
+    return backupWorthy(await store.updateRecipe(entry.recipeId, { name, description, notes, servings, ingredients, steps }));
   }
 
   // ---- Temperature graphs ----
@@ -404,6 +424,7 @@ export function createAppController(deps = {}) {
 
   return {
     store,
+    setBackupListener,
     createRecipe, getRecipe, listRecipes, updateRecipe, deleteRecipe,
     openRecipe, listOpenRecipeIds, closeRecipe,
     getKnownProbes, saveKnownProbes, getProbeAssignments, assignProbe, unassignProbe,
