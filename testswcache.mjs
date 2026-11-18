@@ -37,10 +37,14 @@ console.log('\nisAppShellNavigation — only the app is stored as the cached she
 {
   ok('the root is the app', isAppShellNavigation('/', '/'));
   ok('index.html is the app', isAppShellNavigation('/index.html', '/'));
-  ok('an SPA route with no extension is the app', isAppShellNavigation('/recipe/abc', '/'));
   ok('privacy.html is not (an offline launch would open the policy)', !isAppShellNavigation('/privacy.html', '/'));
   ok('terms.html is not', !isAppShellNavigation('/terms.html', '/'));
-  ok('the OAuth popup page is not, whatever its case', !isAppShellNavigation('/OAuth-Callback.HTML', '/'));
+  ok('the OAuth popup page is not', !isAppShellNavigation('/oauth-callback.html', '/'));
+  // Cloudflare redirects /x.html → /x, so the pages also arrive without the
+  // extension. This is the case the first version of this rule got wrong.
+  ok('/oauth-callback, after Cloudflare drops the .html, is not', !isAppShellNavigation('/oauth-callback', '/'));
+  ok('/privacy and /terms without .html are not', !isAppShellNavigation('/privacy', '/') && !isAppShellNavigation('/terms', '/'));
+  ok('any other path is not: the app has no path routes', !isAppShellNavigation('/recipe/abc', '/'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

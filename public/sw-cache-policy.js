@@ -21,16 +21,20 @@ self.TemperaturaCachePolicy = {
     return !type.startsWith("text/html");
   },
 
-  // Whether a navigation is to the app itself (the SPA shell) rather than to
-  // one of the standalone pages beside it (privacy.html, terms.html, the
-  // OAuth popup's oauth-callback.html). The document route stores whatever a
-  // navigation returns as THE cached shell, so letting a standalone page
-  // through would make an offline launch open the privacy policy instead of
-  // the app. The OAuth popup is in this worker's scope, so it would do the
-  // same thing on every Connect. SPA routes never end in ".html", so an .html
-  // path other than index.html is always a standalone page.
+  // Whether a navigation is to the app itself (the shell) rather than to one
+  // of the standalone pages beside it (privacy, terms, and the OAuth popup's
+  // oauth-callback). The document route stores whatever a navigation returns
+  // as THE cached shell. Letting a standalone page through would make an
+  // offline launch open the privacy policy, or "Returning to Temperatura…",
+  // instead of the app. The OAuth popup is in this worker's scope, so that
+  // would happen on every Connect.
+  //
+  // Only the root counts, not "anything without .html". The app has no path
+  // routes: screens are React state, and the back guard pushes sentinels on
+  // the same URL. And Cloudflare's asset layer redirects /privacy.html to
+  // /privacy (html_handling), so the extension can't be relied on to mark a
+  // page as standalone.
   isAppShellNavigation(pathname, base) {
-    if (pathname === base || pathname === base + "index.html") return true;
-    return !pathname.toLowerCase().endsWith(".html");
+    return pathname === base || pathname === base + "index.html";
   },
 };
